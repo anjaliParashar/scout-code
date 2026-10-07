@@ -1,0 +1,16 @@
+numpy
+scipy
+scikit-learn
+matplotlib
+torch
+gpytorch
+botorch
+pandas
+joblib
+pillow
+pytest
+
+# Optional: rebuild KITTI labels from images
+opencv-python-headless
+ultralytics
+tqdm

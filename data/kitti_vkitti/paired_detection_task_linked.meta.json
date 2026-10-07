@@ -1,0 +1,14 @@
+{
+  "n_before": 1882,
+  "n_after": 1049,
+  "max_gt_delta": 1,
+  "min_mean_height_ratio": 0.13,
+  "label": "coverage_failure_1_minus_mean_assignment_iou",
+  "pearson_hard_before": 0.307768713741841,
+  "spearman_hard_before": 0.3553586429582978,
+  "pearson_soft_filtered": 0.5759161102836908,
+  "spearman_soft_filtered": 0.5630288922488075,
+  "pearson_hard_filtered": 0.4773537103946813,
+  "proxy_mean": 0.35428382708181066,
+  "target_mean": 0.3200660904328798
+}

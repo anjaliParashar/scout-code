@@ -1,0 +1,11 @@
+numpy
+pandas
+pillow
+opencv-python-headless
+torch
+ultralytics
+scipy
+tqdm
+matplotlib
+pytest
+scikit-learn
