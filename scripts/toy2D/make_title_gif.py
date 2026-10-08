@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Render the README hero: sample real labels, then train a surrogate on them."""
+"""Render the README hero: static sim field beside the target as it is learned."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ if str(_ROOT) not in sys.path:
 
 from utils.toy2D.domain import (  # noqa: E402
     C1, C2, R1, R2,
-    make_grid, real_mean_fn, sample_designs, sample_real,
+    make_grid, real_mean_fn, sample_designs, sample_real, sim_mean_fn,
 )
 
 plt.rcParams.update({
@@ -41,9 +41,9 @@ def _outline(ax):
         ax.plot(verts[:, 0], verts[:, 1], color="k", lw=1.1)
 
 
-def _heat(ax, grid, values, vmin, vmax):
+def _heat(ax, grid, values, vmin, vmax, title):
     n = int(np.sqrt(len(grid)))
-    im = ax.imshow(
+    ax.imshow(
         np.asarray(values).reshape(n, n),
         origin="lower", extent=[-3, 3, -3, 3],
         cmap="magma", aspect="equal", vmin=vmin, vmax=vmax,
@@ -51,9 +51,11 @@ def _heat(ax, grid, values, vmin, vmax):
     _outline(ax)
     ax.set_xlim(-3, 3)
     ax.set_ylim(-3, 3)
+    ax.set_xticks([-2, 0, 2])
+    ax.set_yticks([-2, 0, 2])
     ax.set_xlabel("x1")
     ax.set_ylabel("x2")
-    return im
+    ax.set_title(title, pad=6)
 
 
 def _kernel(a, b, lengthscale):
@@ -61,12 +63,12 @@ def _kernel(a, b, lengthscale):
     return np.exp(-0.5 * d2 / lengthscale ** 2)
 
 
-def _posterior(x_train, y_train, x_query, lengthscale, noise):
+def _posterior(x_train, y_train, x_query, lengthscale, noise, mean):
+    centered = y_train - mean
     k_tt = _kernel(x_train, x_train, lengthscale)
     k_tt.flat[:: len(x_train) + 1] += noise ** 2 + 1e-6
     k_qt = _kernel(x_query, x_train, lengthscale)
-    mean = k_qt @ np.linalg.solve(k_tt, y_train)
-    return mean
+    return mean + k_qt @ np.linalg.solve(k_tt, centered)
 
 
 def _nll(theta, x_train, y_train):
@@ -87,92 +89,94 @@ def _grab(fig) -> Image.Image:
     return Image.fromarray(rgba[:, :, :3])
 
 
-def render(path: Path, seed: int = 7, n_init: int = 16) -> None:
-    grid = make_grid(72)[2]
-    truth = real_mean_fn(grid).astype(np.float64)
-    vmin, vmax = float(truth.min()), float(truth.max())
-    # Uniform designs plus a few draws inside each diamond, shuffled, so the
-    # surrogate has high-score labels to fit and the field visibly sharpens.
+def _designs(n_bg: int, n_each: int, seed: int) -> np.ndarray:
+    """Background labels first, then points inside each real diamond."""
     rng = np.random.default_rng(seed)
-    x_all = np.vstack([
-        sample_designs(n_init - 6, seed=seed),
-        C1 + rng.normal(scale=0.16, size=(3, 2)),
-        C2 + rng.normal(scale=0.14, size=(3, 2)),
-    ]).astype(np.float64)
-    x_all = x_all[rng.permutation(len(x_all))]
-    x_all = np.clip(x_all, -3.0, 3.0)
+    background = sample_designs(n_bg, seed=seed).astype(np.float64)
+    in_c1 = np.clip(C1 + rng.normal(scale=0.12, size=(n_each, 2)), -3.0, 3.0)
+    in_c2 = np.clip(C2 + rng.normal(scale=0.12, size=(n_each, 2)), -3.0, 3.0)
+    ordered = [background]
+    for i in range(n_each):
+        ordered.append(in_c2[i:i + 1])
+        ordered.append(in_c1[i:i + 1])
+    return np.vstack(ordered)
+
+
+def render(path: Path, seed: int = 7) -> None:
+    grid = make_grid(80)[2].astype(np.float64)
+    sim = sim_mean_fn(grid).astype(np.float64)
+    truth = real_mean_fn(grid).astype(np.float64)
+    vmin = float(min(sim.min(), truth.min()))
+    vmax = float(max(sim.max(), truth.max()))
+
+    x_all = _designs(n_bg=12, n_each=4, seed=seed)
+    n_init = len(x_all)
     y_all = sample_real(x_all, seed=seed + 1).astype(np.float64)
 
-    fig, axes = plt.subplots(
-        1, 2, figsize=(8.6, 4.15),
-        gridspec_kw={"width_ratios": [1.15, 0.85]},
-        constrained_layout=True,
+    theta_hat = minimize(
+        _nll, np.array([np.log(0.55), np.log(0.12)]), args=(x_all, y_all),
+        method="L-BFGS-B", options={"maxiter": 40},
+    ).x
+    lengthscale = float(np.clip(np.exp(theta_hat[0]), 0.40, 0.70))
+    noise = float(np.exp(theta_hat[1]))
+
+    fig = plt.figure(figsize=(9.0, 4.7))
+    grid_spec = fig.add_gridspec(
+        2, 2, height_ratios=[1.0, 0.085],
+        left=0.06, right=0.98, top=0.90, bottom=0.13, wspace=0.22, hspace=0.05,
     )
+    ax_sim = fig.add_subplot(grid_spec[0, 0])
+    ax_tgt = fig.add_subplot(grid_spec[0, 1])
+    ax_bar = fig.add_subplot(grid_spec[1, :])
     frames: list[Image.Image] = []
     durations: list[int] = []
 
-    train_ylim = None
-
-    def snapshot(title, shown, loss_x, loss_y, phase, hold_ms):
-        ax, side = axes
-        ax.clear()
-        side.clear()
-        im = _heat(ax, grid, shown, vmin, vmax)
-        if phase == "sample":
-            k = len(loss_y)
-            if k:
-                ax.scatter(
-                    x_all[:k, 0], x_all[:k, 1],
-                    c="white", edgecolors="k", s=36, zorder=3,
-                )
-            side.plot(np.arange(1, k + 1), loss_y, color="#0072B2", lw=2, marker="o", ms=4)
-            side.set_xlim(0.5, n_init + 0.5)
-            side.set_ylim(vmin - 0.15, vmax + 0.15)
-            side.set_xlabel("label index")
-            side.set_ylabel("observed target")
-            side.set_title(f"Collected labels  {k}/{n_init}")
+    def snapshot(k: int, pred, hold_ms: int) -> None:
+        ax_sim.clear()
+        ax_tgt.clear()
+        ax_bar.clear()
+        _heat(ax_sim, grid, sim, vmin, vmax, "Simulated system")
+        if k == 0:
+            n = int(np.sqrt(len(grid)))
+            ax_tgt.imshow(
+                np.full((n, n), 0.93),
+                origin="lower", extent=[-3, 3, -3, 3],
+                cmap="gray", vmin=0, vmax=1, aspect="equal",
+            )
+            _outline(ax_tgt)
+            ax_tgt.set_xlim(-3, 3)
+            ax_tgt.set_ylim(-3, 3)
+            ax_tgt.set_xticks([-2, 0, 2])
+            ax_tgt.set_yticks([-2, 0, 2])
+            ax_tgt.set_xlabel("x1")
+            ax_tgt.set_ylabel("x2")
+            ax_tgt.set_title("Target system", pad=6)
         else:
-            ax.scatter(x_all[:, 0], x_all[:, 1], c="white", edgecolors="k", s=28, zorder=3)
-            side.plot(loss_x, loss_y, color="#D55E00", lw=2)
-            side.set_xlabel("training step")
-            side.set_ylabel("negative log likelihood")
-            side.set_title("Surrogate fit")
-            if train_ylim is not None:
-                side.set_ylim(*train_ylim)
-                side.set_xlim(0, max(len(history) - 1, 1))
-        ax.set_title(title)
+            _heat(ax_tgt, grid, pred, vmin, vmax, "Target system")
+        if k:
+            ax_tgt.scatter(
+                x_all[:k, 0], x_all[:k, 1],
+                c="white", edgecolors="k", s=36, zorder=3,
+            )
+        ax_bar.barh(0, n_init, height=0.6, color="#E6E6E6")
+        ax_bar.barh(0, k, height=0.6, color="#0072B2")
+        ax_bar.set_xlim(0, n_init)
+        ax_bar.set_ylim(-0.55, 0.55)
+        ax_bar.set_yticks([])
+        ax_bar.set_xticks([])
+        for spine in ax_bar.spines.values():
+            spine.set_visible(False)
+        ax_bar.set_xlabel(f"target budget    {k} / {n_init}")
         frames.append(_grab(fig))
         durations.append(hold_ms)
 
-    # Phase 1: reveal the field, then add one real label at a time.
-    snapshot("Sampling real labels", truth, [], [], "sample", 280)
-    collected = []
+    snapshot(0, np.zeros(len(grid)), 420)
     for k in range(1, n_init + 1):
-        collected.append(float(y_all[k - 1]))
-        snapshot("Sampling real labels", truth, [], collected, "sample", 160)
-    snapshot("Sampling real labels", truth, [], collected, "sample", 450)
-
-    # Phase 2: walk hyperparameters from a long, uncertain kernel to the fitted one.
-    theta_hat = minimize(
-        _nll, np.array([np.log(0.45), np.log(0.12)]), args=(x_all, y_all),
-        method="L-BFGS-B", options={"maxiter": 40},
-    ).x
-    theta_start = np.array([np.log(2.4), np.log(0.85)])
-    history = []
-    n_steps = 18
-    for t in np.linspace(0.0, 1.0, n_steps):
-        theta = (1.0 - t) * theta_start + t * theta_hat
-        history.append((np.exp(theta), _nll(theta, x_all, y_all)))
-    nlls = [item[1] for item in history]
-    pad = 0.08 * (max(nlls) - min(nlls) + 1e-6)
-    train_ylim = (min(nlls) - pad, max(nlls) + pad)
-
-    for step, ((lengthscale, noise), nll) in enumerate(history):
-        pred = _posterior(x_all, y_all, grid.astype(np.float64), float(lengthscale), float(noise))
-        xs = list(range(step + 1))
-        ys = [item[1] for item in history[: step + 1]]
-        title = "Training the surrogate" if step < len(history) - 1 else "Fitted surrogate"
-        snapshot(title, pred, xs, ys, "train", 170 if step < len(history) - 1 else 800)
+        pred = _posterior(
+            x_all[:k], y_all[:k], grid, lengthscale, noise, float(y_all[:k].mean()),
+        )
+        hold = 950 if k == n_init else 180
+        snapshot(k, pred, hold)
 
     path.parent.mkdir(parents=True, exist_ok=True)
     frames[0].save(

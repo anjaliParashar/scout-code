@@ -1,7 +1,7 @@
 # SCOUT
 
 <p align="center">
-  <img src="docs/toy2d.gif" alt="Sampling real labels on the 2-D toy, then training the surrogate" width="860">
+  <img src="docs/toy2d.gif" alt="Static simulated system beside the target system as real labels are acquired" width="860">
 </p>
 
 SCOUT looks for failures of a real system by choosing which scenarios to label next. A mutual-information shortlist proposes scenarios the current labels do not explain. A control variate then re-ranks that shortlist with a cheap proxy, so the next real labels land where the proxy-corrected failure score is high.
