@@ -36,26 +36,22 @@
         <div class="stage-top">
           <h2>Try the rule</h2>
           <div class="controls">
-            <button type="button" data-method="ours" class="active">Ours</button>
-            <button type="button" data-method="proxy">Proxy only</button>
-            <button type="button" data-method="mi">MI only</button>
-            <button type="button" data-method="random">Random</button>
             <button type="button" id="play">Play</button>
             <button type="button" id="pause">Pause</button>
             <button type="button" id="step">Step</button>
             <button type="button" id="reset">New seed</button>
           </div>
         </div>
+        <p class="failure-note"><strong>Failure</strong> is the missed-car score: one minus the average overlap between the detector’s boxes and the ground-truth cars. Higher means more of the cars were missed. The same score is computed on the real KITTI frame and on its Virtual KITTI clone.</p>
         <div class="demo-layout">
-          <div class="canvases">
-            <div class="panel">
-              <p>Virtual KITTI scores</p>
-              <canvas id="sim" width="640" height="640"></canvas>
-            </div>
-            <div class="panel">
-              <p>KITTI scores being learned</p>
-              <canvas id="target" width="640" height="640"></canvas>
-            </div>
+          <div class="panel">
+            <canvas id="curves" width="900" height="420"></canvas>
+            <ul class="legend">
+              <li><i class="swatch ours"></i>Ours</li>
+              <li><i class="swatch proxy"></i>Proxy only</li>
+              <li><i class="swatch mi"></i>MI only</li>
+              <li><i class="swatch random"></i>Random</li>
+            </ul>
           </div>
           <div class="pair">
             <figure>
@@ -80,12 +76,12 @@
           <div><b id="n-mean">0</b><span>mean target failure</span></div>
           <div><b id="n-severe">0</b><span>failures above 0.5</span></div>
         </div>
-        <p class="inspect" id="inspect">Hover a point to see that frame. Each step spends one real KITTI label.</p>
+        <p class="inspect" id="inspect">Each step adds one frame per method. The pictures are the frame our method just labeled.</p>
       </div>
       <div class="cards" style="margin-top: 16px">
         <article class="card">
           <h3>1. Shortlist</h3>
-          <p>Cluster the labels already collected. Designs that sit outside that support, or on the boundary between clusters, get a high mutual-information score. Gold marks are that shortlist.</p>
+          <p>Mutual information proposes frames the labels already collected do not cover. Each method then spends the same number of real KITTI evaluations.</p>
         </article>
         <article class="card">
           <h3>2. Correct the proxy</h3>

@@ -1,17 +1,17 @@
-/* KITTI demo: learn real missed-car scores from a few labels, using Virtual KITTI as the proxy. */
+/* KITTI demo: animate cumulative missed-car failure for each acquisition rule. */
 (function () {
   const BUDGET = 12;
   const N_INIT = 6;
-  const GRID = 52;
   const LS = 0.55;
   const NOISE = 0.08;
-  const MAGMA = [
-    [0, 0, 4], [28, 16, 68], [79, 18, 123], [129, 37, 129],
-    [181, 54, 122], [229, 80, 100], [251, 135, 97], [254, 194, 135], [252, 253, 191],
+  const METHODS = [
+    { id: "ours", name: "Ours", color: "#e4572e" },
+    { id: "proxy", name: "Proxy only", color: "#4c9be8" },
+    { id: "mi", name: "MI only", color: "#e3b341" },
+    { id: "random", name: "Random", color: "#b7aea4" },
   ];
 
-  const simCanvas = document.getElementById("sim");
-  const tgtCanvas = document.getElementById("target");
+  const canvas = document.getElementById("curves");
   const fill = document.getElementById("budget-fill");
   const budgetText = document.getElementById("budget-text");
   const readout = document.getElementById("readout");
@@ -21,8 +21,16 @@
   const proxyScore = document.getElementById("proxy-score");
   const realScore = document.getElementById("real-score");
 
-  function mulberry32(seed) {
-    let a = seed >>> 0;
+  let frames = [];
+  let traces = null;
+  let seed = 7;
+  let stepIndex = 0;
+  let timer = null;
+  let yMin = 0;
+  let yMax = 1;
+
+  function mulberry32(s) {
+    let a = s >>> 0;
     return function () {
       a |= 0; a = (a + 0x6d2b79f5) | 0;
       let t = Math.imul(a ^ (a >>> 15), 1 | a);
@@ -30,16 +38,9 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-  function dist(a, b) {
-    return Math.hypot(a[0] - b[0], a[1] - b[1]);
-  }
-  function color(t) {
-    const u = Math.min(1, Math.max(0, t)) * (MAGMA.length - 1);
-    const i = Math.floor(u);
-    const f = u - i;
-    const a = MAGMA[i], b = MAGMA[Math.min(i + 1, MAGMA.length - 1)];
-    return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
-  }
+  function dist(a, b) { return Math.hypot(a[0] - b[0], a[1] - b[1]); }
+  function xy(i) { return [frames[i].x, frames[i].y]; }
+
   function solve(A, b) {
     const n = b.length;
     const M = A.map((row, i) => row.concat([b[i]]));
@@ -57,6 +58,7 @@
     }
     return M.map((row) => row[n]);
   }
+
   function gpMean(trainX, trainY, query) {
     const n = trainX.length;
     const mu = trainY.reduce((s, v) => s + v, 0) / n;
@@ -79,55 +81,20 @@
       return s;
     });
   }
-  function idw(points, values, query) {
-    return query.map((q) => {
-      let wsum = 0, vsum = 0;
-      for (let i = 0; i < points.length; i++) {
-        const d = dist(q, points[i]);
-        if (d < 1e-3) return values[i];
-        const w = 1 / (d * d);
-        wsum += w;
-        vsum += w * values[i];
-      }
-      return vsum / wsum;
-    });
-  }
 
-  let frames = [];
-  let bounds = { minX: -1, maxX: 1, minY: -1, maxY: 1 };
-  let grid = [];
-  let proxyField = [];
-  let world = null;
-  let method = "ours";
-  let timer = null;
-  let focus = 0;
-
-  function xy(frame) { return [frame.x, frame.y]; }
-
-  function makeWorld(seed) {
-    const rnd = mulberry32(seed);
-    const labeled = [];
-    while (labeled.length < N_INIT) {
-      const i = Math.floor(rnd() * frames.length);
-      if (!labeled.includes(i)) labeled.push(i);
-    }
-    return { seed, labeled, shortlist: [], chosen: -1 };
-  }
-
-  function choose() {
-    const labeled = new Set(world.labeled);
-    const rest = frames.map((_, i) => i).filter((i) => !labeled.has(i));
+  function pick(method, labeled, rnd) {
+    const taken = new Set(labeled);
+    const rest = frames.map((_, i) => i).filter((i) => !taken.has(i));
     const dmin = rest.map((i) => {
       let m = Infinity;
-      for (const j of world.labeled) m = Math.min(m, dist(xy(frames[i]), xy(frames[j])));
+      for (const j of labeled) m = Math.min(m, dist(xy(i), xy(j)));
       return m;
     });
-    if (method === "random") {
-      return { shortlist: [], chosen: rest[Math.floor(Math.random() * rest.length)] };
-    }
+    if (method === "random") return rest[Math.floor(rnd() * rest.length)];
     if (method === "mi") {
-      const order = rest.map((idx, k) => ({ idx, d: dmin[k] })).sort((a, b) => b.d - a.d);
-      return { shortlist: order.slice(0, 12).map((o) => o.idx), chosen: order[0].idx };
+      let best = 0;
+      for (let i = 1; i < rest.length; i++) if (dmin[i] > dmin[best]) best = i;
+      return rest[best];
     }
     const eligible = [];
     for (let i = 0; i < rest.length; i++) if (dmin[i] > 0.18) eligible.push(i);
@@ -135,7 +102,7 @@
     if (method === "proxy") {
       let best = use[0];
       for (const i of use) if (frames[rest[i]].proxy > frames[rest[best]].proxy) best = i;
-      return { shortlist: [], chosen: rest[best] };
+      return rest[best];
     }
     const band = use.filter((i) => dmin[i] < 1.6);
     const base = band.length >= 10 ? band : use;
@@ -149,10 +116,10 @@
         + 0.45 * ((novs[k] - nMin) / (nMax - nMin + 1e-9)),
     })).sort((a, b) => b.score - a.score).slice(0, 16);
     const short = ranked.map((r) => rest[r.i]);
-    const trainX = world.labeled.map((i) => xy(frames[i]));
-    const trainY = world.labeled.map((i) => frames[i].target);
-    const fhat = gpMean(trainX, trainY, short.map((i) => xy(frames[i])));
-    const gs = trainX.map((_, i) => frames[world.labeled[i]].proxy);
+    const trainX = labeled.map(xy);
+    const trainY = labeled.map((i) => frames[i].target);
+    const fhat = gpMean(trainX, trainY, short.map(xy));
+    const gs = labeled.map((i) => frames[i].proxy);
     const gMean = gs.reduce((s, v) => s + v, 0) / gs.length;
     const yMean = trainY.reduce((s, v) => s + v, 0) / trainY.length;
     let cov = 0, varg = 0;
@@ -167,185 +134,178 @@
       const sb = (1 - 0.35 * beta) * fhat[best] + 0.35 * beta * frames[short[best]].proxy;
       if (si > sb) best = i;
     }
-    return { shortlist: short, chosen: short[best] };
+    return short[best];
   }
 
-  function project(canvas) {
-    const pad = 28;
-    return {
-      px: (x) => pad + ((x - bounds.minX) / (bounds.maxX - bounds.minX)) * (canvas.width - 2 * pad),
-      py: (y) => canvas.height - pad - ((y - bounds.minY) / (bounds.maxY - bounds.minY)) * (canvas.height - 2 * pad),
-    };
+  function acquire(method, init, rnd) {
+    const labeled = init.slice();
+    for (let t = 0; t < BUDGET; t++) labeled.push(pick(method, labeled, rnd));
+    return labeled;
   }
 
-  function paint(canvas, values, points) {
+  function cum(indices, key, n) {
+    let sum = 0;
+    const out = [];
+    for (let i = 0; i < n; i++) {
+      sum += frames[indices[i]][key];
+      out.push(sum / (i + 1));
+    }
+    return out;
+  }
+
+  function resize() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const rect = canvas.getBoundingClientRect();
+    canvas.width = Math.max(640, Math.floor(rect.width * dpr));
+    canvas.height = Math.floor(canvas.width * 8.5 / 16);
+  }
+
+  function draw() {
     const ctx = canvas.getContext("2d");
-    const w = canvas.width, h = canvas.height;
-    const img = ctx.createImageData(w, h);
-    const scale = project(canvas);
-    for (let py = 0; py < h; py++) {
-      const gy = Math.min(GRID - 1, Math.floor((1 - py / (h - 1)) * (GRID - 1)));
-      for (let px = 0; px < w; px++) {
-        const gx = Math.min(GRID - 1, Math.floor((px / (w - 1)) * (GRID - 1)));
-        const v = values ? values[gy * GRID + gx] : null;
-        const rgb = v == null ? [236, 232, 227] : color(v);
-        const o = (py * w + px) * 4;
-        img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2]; img.data[o + 3] = 255;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    const shown = N_INIT + stepIndex;
+    const total = N_INIT + BUDGET;
+    const left = Math.round(w * 0.07);
+    const right = Math.round(w * 0.03);
+    const top = Math.round(h * 0.16);
+    const bottom = Math.round(h * 0.16);
+    const gap = Math.round(w * 0.06);
+    const panelW = (w - left - right - gap) / 2;
+    const panelH = h - top - bottom;
+    const panels = [
+      { title: "Real KITTI", key: "target", x0: left },
+      { title: "Virtual KITTI proxy", key: "proxy", x0: left + panelW + gap },
+    ];
+
+    function xAt(panel, i) {
+      return panel.x0 + (total <= 1 ? 0 : i / (total - 1)) * panelW;
+    }
+    function yAt(v) {
+      return top + (1 - (v - yMin) / (yMax - yMin || 1)) * panelH;
+    }
+
+    ctx.font = `${Math.round(h * 0.045)}px "Source Sans 3", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.lineWidth = Math.max(2, w / 450);
+
+    for (const panel of panels) {
+      ctx.strokeStyle = "rgba(255,255,255,0.18)";
+      ctx.lineWidth = 1;
+      ctx.strokeRect(panel.x0, top, panelW, panelH);
+      ctx.fillStyle = "#f6f1ea";
+      ctx.fillText(panel.title, panel.x0 + panelW / 2, top * 0.45);
+      ctx.fillStyle = "#c8bfb4";
+      ctx.font = `${Math.round(h * 0.038)}px "Source Sans 3", sans-serif`;
+      ctx.fillText("labels collected", panel.x0 + panelW / 2, h - bottom * 0.35);
+      ctx.save();
+      ctx.translate(panel.x0 - left * 0.55, top + panelH / 2);
+      ctx.rotate(-Math.PI / 2);
+      ctx.fillText("cumulative mean failure", 0, 0);
+      ctx.restore();
+      ctx.font = `${Math.round(h * 0.045)}px "Source Sans 3", sans-serif`;
+
+      for (const method of METHODS) {
+        const series = cum(traces[method.id], panel.key, shown);
+        ctx.beginPath();
+        ctx.strokeStyle = method.color;
+        ctx.lineWidth = Math.max(2.2, w / 380);
+        series.forEach((v, i) => {
+          const x = xAt(panel, i);
+          const y = yAt(v);
+          if (i === 0) ctx.moveTo(x, y);
+          else ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        const last = series[series.length - 1];
+        ctx.beginPath();
+        ctx.fillStyle = method.color;
+        ctx.arc(xAt(panel, series.length - 1), yAt(last), Math.max(3.5, w / 220), 0, Math.PI * 2);
+        ctx.fill();
       }
     }
-    ctx.putImageData(img, 0, 0);
-    function dot(frame, radius, fillStyle) {
-      ctx.beginPath();
-      ctx.arc(scale.px(frame.x), scale.py(frame.y), radius, 0, Math.PI * 2);
-      ctx.fillStyle = fillStyle;
-      ctx.fill();
-      ctx.strokeStyle = "#111";
-      ctx.lineWidth = 1;
-      ctx.stroke();
-    }
-    for (const i of points.shortlist || []) dot(frames[i], 4, "#f5d76e");
-    for (const i of points.labeled || []) dot(frames[i], 5, "white");
-    if (points.chosen >= 0) dot(frames[points.chosen], 8, "#fff");
   }
 
-  function learnedField() {
-    if (!world.labeled.length) return null;
-    const trainX = world.labeled.map((i) => xy(frames[i]));
-    const trainY = world.labeled.map((i) => frames[i].target);
-    return gpMean(trainX, trainY, grid);
-  }
-
-  function show(index) {
-    focus = index;
+  function showOursFrame() {
+    const index = traces.ours[N_INIT + stepIndex - 1];
     const frame = frames[index];
     proxyImg.src = frame.proxyImg;
     realImg.src = frame.real;
-    proxyScore.textContent = `proxy failure ${frame.proxy.toFixed(2)} · sequence ${frame.seq}, frame ${frame.frame}, ${frame.cars} cars`;
-    const known = world.labeled.includes(index);
-    realScore.textContent = known
-      ? `target failure ${frame.target.toFixed(2)} · real KITTI label`
-      : "target failure not labeled yet";
+    proxyScore.textContent = `proxy failure ${frame.proxy.toFixed(2)} · sequence ${frame.seq}, frame ${frame.frame}`;
+    realScore.textContent = `target failure ${frame.target.toFixed(2)} · real KITTI label`;
   }
 
   function render() {
-    paint(simCanvas, proxyField, { labeled: world.labeled, chosen: world.chosen });
-    paint(tgtCanvas, learnedField(), {
-      labeled: world.labeled,
-      shortlist: world.shortlist,
-      chosen: world.chosen,
-    });
-    const acquired = world.labeled.slice(N_INIT);
-    const k = acquired.length;
-    const mean = k ? acquired.reduce((s, i) => s + frames[i].target, 0) / k : 0;
-    const severe = acquired.filter((i) => frames[i].target >= 0.5).length;
-    fill.style.width = `${(100 * k) / BUDGET}%`;
-    budgetText.textContent = `target budget  ${k} / ${BUDGET}`;
-    document.getElementById("n-used").textContent = String(k);
+    draw();
+    const prefix = traces.ours.slice(0, N_INIT + stepIndex);
+    const mean = prefix.reduce((s, i) => s + frames[i].target, 0) / prefix.length;
+    const severe = prefix.slice(N_INIT).filter((i) => frames[i].target >= 0.5).length;
+    fill.style.width = `${(100 * stepIndex) / BUDGET}%`;
+    budgetText.textContent = `target budget  ${stepIndex} / ${BUDGET}`;
+    document.getElementById("n-used").textContent = String(stepIndex);
     document.getElementById("n-mean").textContent = mean.toFixed(2);
     document.getElementById("n-severe").textContent = String(severe);
-    if (world.chosen >= 0) show(world.chosen);
+    showOursFrame();
+    const oursNow = cum(traces.ours, "target", N_INIT + stepIndex).at(-1);
+    const randNow = cum(traces.random, "target", N_INIT + stepIndex).at(-1);
+    inspect.textContent = `Ours cumulative real failure ${oursNow.toFixed(2)}. Random ${randNow.toFixed(2)}. A higher curve has found worse detector failures.`;
   }
 
   function step() {
-    if (world.labeled.length - N_INIT >= BUDGET) {
+    if (stepIndex >= BUDGET) {
       pause();
-      readout.textContent = "Budget spent. Reset for another seed, or switch the acquisition rule.";
+      readout.textContent = "Budget spent. New seed reruns every method from a shared initial set.";
       return;
     }
-    const pick = choose();
-    world.shortlist = pick.shortlist;
-    world.chosen = pick.chosen;
-    world.labeled.push(pick.chosen);
-    const frame = frames[pick.chosen];
-    const gap = frame.target - frame.proxy;
-    readout.textContent = method === "ours"
-      ? `Shortlist of ${pick.shortlist.length}, then the control variate kept sequence ${frame.seq} frame ${frame.frame}. Real failure ${frame.target.toFixed(2)}, proxy ${frame.proxy.toFixed(2)} (gap ${gap >= 0 ? "+" : ""}${gap.toFixed(2)}).`
-      : `Labeled sequence ${frame.seq} frame ${frame.frame}. Real failure ${frame.target.toFixed(2)}, proxy ${frame.proxy.toFixed(2)}.`;
+    stepIndex += 1;
+    const frame = frames[traces.ours[N_INIT + stepIndex - 1]];
+    readout.textContent = `Ours labeled sequence ${frame.seq} frame ${frame.frame}: real failure ${frame.target.toFixed(2)}, proxy ${frame.proxy.toFixed(2)}.`;
     render();
   }
 
-  function play() { if (!timer) timer = setInterval(step, 1100); }
+  function play() { if (!timer) timer = setInterval(step, 700); }
   function pause() { clearInterval(timer); timer = null; }
-  function reset(seed) {
+
+  function reset(nextSeed) {
     pause();
-    world = makeWorld(seed);
-    world.shortlist = [];
-    world.chosen = -1;
-    readout.textContent = "Press play. Each step spends one real KITTI label. The pictures are that frame.";
+    seed = nextSeed;
+    const rnd = mulberry32(seed);
+    const init = [];
+    while (init.length < N_INIT) {
+      const i = Math.floor(rnd() * frames.length);
+      if (!init.includes(i)) init.push(i);
+    }
+    traces = {};
+    METHODS.forEach((method, k) => {
+      traces[method.id] = acquire(method.id, init, mulberry32(seed + 11 * (k + 1)));
+    });
+    const vals = [];
+    for (const method of METHODS) {
+      vals.push(...cum(traces[method.id], "target", N_INIT + BUDGET));
+      vals.push(...cum(traces[method.id], "proxy", N_INIT + BUDGET));
+    }
+    const lo = Math.min(...vals);
+    const hi = Math.max(...vals);
+    const pad = 0.12 * (hi - lo + 1e-3);
+    yMin = lo - pad;
+    yMax = hi + pad;
+    stepIndex = 0;
+    readout.textContent = "All four methods share the first labels, then each spends the same real-frame budget.";
     render();
-    show(world.labeled[world.labeled.length - 1]);
-  }
-
-  function nearest(canvas, ev) {
-    const rect = canvas.getBoundingClientRect();
-    const scale = project(canvas);
-    const mx = ((ev.clientX - rect.left) / rect.width) * canvas.width;
-    const my = ((ev.clientY - rect.top) / rect.height) * canvas.height;
-    let best = 0, bd = Infinity;
-    frames.forEach((frame, i) => {
-      const d = Math.hypot(scale.px(frame.x) - mx, scale.py(frame.y) - my);
-      if (d < bd) { bd = d; best = i; }
-    });
-    return bd < 28 * (canvas.width / rect.width) ? best : -1;
-  }
-
-  function bindHover(canvas) {
-    canvas.addEventListener("mousemove", (ev) => {
-      const i = nearest(canvas, ev);
-      if (i < 0) return;
-      show(i);
-      const frame = frames[i];
-      inspect.textContent = `Sequence ${frame.seq}, frame ${frame.frame}: proxy ${frame.proxy.toFixed(2)}, real KITTI ${frame.target.toFixed(2)}.`;
-    });
   }
 
   document.getElementById("play").onclick = play;
   document.getElementById("pause").onclick = pause;
   document.getElementById("step").onclick = () => { pause(); step(); };
-  document.getElementById("reset").onclick = () => reset((world.seed + 1) % 997);
-  document.querySelectorAll("[data-method]").forEach((btn) => {
-    btn.onclick = () => {
-      document.querySelectorAll("[data-method]").forEach((b) => b.classList.remove("active"));
-      btn.classList.add("active");
-      method = btn.dataset.method;
-      reset(world.seed);
-    };
-  });
-  bindHover(simCanvas);
-  bindHover(tgtCanvas);
-  window.addEventListener("resize", () => { resize(); if (world) render(); });
-
-  function resize() {
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    for (const c of [simCanvas, tgtCanvas]) {
-      const rect = c.getBoundingClientRect();
-      const side = Math.max(240, Math.floor(rect.width * dpr));
-      c.width = side;
-      c.height = side;
-    }
-  }
+  document.getElementById("reset").onclick = () => reset((seed + 1) % 997);
+  window.addEventListener("resize", () => { resize(); if (traces) render(); });
 
   fetch("assets/kitti_pool.json")
     .then((r) => r.json())
     .then((data) => {
       frames = data.frames;
-      const xs = frames.map((f) => f.x), ys = frames.map((f) => f.y);
-      const padX = (Math.max(...xs) - Math.min(...xs)) * 0.12;
-      const padY = (Math.max(...ys) - Math.min(...ys)) * 0.12;
-      bounds = {
-        minX: Math.min(...xs) - padX, maxX: Math.max(...xs) + padX,
-        minY: Math.min(...ys) - padY, maxY: Math.max(...ys) + padY,
-      };
-      grid = [];
-      for (let iy = 0; iy < GRID; iy++) {
-        for (let ix = 0; ix < GRID; ix++) {
-          grid.push([
-            bounds.minX + (bounds.maxX - bounds.minX) * ix / (GRID - 1),
-            bounds.minY + (bounds.maxY - bounds.minY) * iy / (GRID - 1),
-          ]);
-        }
-      }
-      proxyField = idw(frames.map(xy), frames.map((f) => f.proxy), grid);
       resize();
       reset(7);
       play();
@@ -353,4 +313,8 @@
     .catch(() => {
       readout.textContent = "Could not load the KITTI frame set.";
     });
+
+  const video = document.getElementById("paper-video");
+  const missing = document.getElementById("video-missing");
+  if (video && missing) video.addEventListener("error", () => { missing.hidden = false; });
 })();
