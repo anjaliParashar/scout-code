@@ -63,6 +63,42 @@ def _order(seed: int, method: str) -> np.ndarray:
     return order
 
 
+def _separate(embedded: np.ndarray, labels: np.ndarray) -> np.ndarray:
+    """Move each mode so its bounding circle does not meet the others."""
+    xy = embedded.astype(np.float64).copy()
+    modes = np.unique(labels)
+    centers = np.stack([xy[labels == mode].mean(0) for mode in modes])
+    radii = np.array([
+        np.linalg.norm(xy[labels == mode] - centers[i], axis=1).max()
+        for i, mode in enumerate(modes)
+    ])
+    gap = 0.15 * float(np.median(radii))
+    for _ in range(120):
+        for i in range(len(modes)):
+            for j in range(i + 1, len(modes)):
+                delta = centers[i] - centers[j]
+                dist = float(np.linalg.norm(delta)) + 1e-6
+                need = float(radii[i] + radii[j] + gap)
+                if dist >= need:
+                    continue
+                shift = 0.5 * (need - dist) * delta / dist
+                centers[i] += shift
+                centers[j] -= shift
+    for i, mode in enumerate(modes):
+        members = xy[labels == mode]
+        xy[labels == mode] = members + (centers[i] - members.mean(0))
+    centers = np.stack([xy[labels == mode].mean(0) for mode in modes])
+    for i, mode in enumerate(modes):
+        others = np.linalg.norm(centers - centers[i], axis=1)
+        others[i] = np.inf
+        allow = 0.42 * float(others.min())
+        members = xy[labels == mode]
+        radius = float(np.linalg.norm(members - centers[i], axis=1).max())
+        if radius > allow:
+            xy[labels == mode] = centers[i] + (members - centers[i]) * (allow / radius)
+    return xy
+
+
 def _clips(frame: pd.DataFrame, target: np.ndarray, order: np.ndarray) -> list[dict]:
     stops = np.linspace(N_INIT - 1, BUDGET - 1, N_CLIPS).round().astype(int)
     clips = []
@@ -107,14 +143,16 @@ def main() -> None:
         learning_rate="auto",
         random_state=0,
     ).fit_transform(reduced)
-    span = embedded.max(0) - embedded.min(0)
-    embedded = (embedded - embedded.min(0)) / (span + 1e-9)
+    embedded = _separate(embedded, labels)
+    lo, hi = embedded.min(0), embedded.max(0)
+    embedded = 0.06 + 0.88 * (embedded - lo) / (hi - lo + 1e-9)
     points = [
         [
             round(float(xy[0]), 4),
             round(float(xy[1]), 4),
             int(score >= THRESHOLD),
             int(mode),
+            round(float(score), 4),
         ]
         for xy, score, mode in zip(embedded, target, labels)
     ]
@@ -124,7 +162,7 @@ def main() -> None:
         center = members.mean(0)
         if len(members) >= 3:
             hull = members[ConvexHull(members).vertices]
-            hull = center + 1.08 * (hull - center)
+            hull = center + (hull - center)
         else:
             hull = members
         hull = np.clip(hull, 0.0, 1.0)

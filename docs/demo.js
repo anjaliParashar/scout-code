@@ -132,9 +132,10 @@
     const cols = 3;
     const rows = 2;
     const gap = Math.round(w * 0.035);
-    const head = Math.round(h * 0.06);
+    const head = Math.round(h * 0.055);
+    const foot = Math.round(h * 0.1);
     const panelW = (w - gap * (cols + 1)) / cols;
-    const panelH = (h - head - gap * (rows + 1)) / rows;
+    const panelH = (h - head - foot - gap * (rows + 1)) / rows;
     const pad = Math.round(Math.min(panelW, panelH) * 0.08);
 
     function xy(panelX, panelY, point) {
@@ -144,16 +145,43 @@
       ];
     }
 
-    const severities = demo.modes.map((mode) => mode.severity);
-    const sevLo = Math.min(...severities);
-    const sevHi = Math.max(...severities);
-    function islandColor(severity, alpha) {
-      const t = (severity - sevLo) / (sevHi - sevLo || 1);
-      const r = Math.round(92 + (228 - 92) * t);
-      const g = Math.round(112 + (78 - 112) * t);
-      const b = Math.round(128 + (42 - 128) * t);
+    function scoreColor(score, alpha) {
+      const t = Math.max(0, Math.min(1, score));
+      const r = Math.round(70 + (214 - 70) * t);
+      const g = Math.round(98 + (54 - 98) * t);
+      const b = Math.round(130 + (28 - 130) * t);
       return `rgba(${r},${g},${b},${alpha})`;
     }
+
+    const barX = Math.round(w * 0.18);
+    const barW = Math.round(w * 0.64);
+    const barH = Math.max(8, Math.round(h * 0.028));
+    const barY = h - Math.round(foot * 0.62);
+    const gradient = ctx.createLinearGradient(barX, 0, barX + barW, 0);
+    for (let step = 0; step <= 8; step++) gradient.addColorStop(step / 8, scoreColor(step / 8, 1));
+    ctx.fillStyle = gradient;
+    ctx.fillRect(barX, barY, barW, barH);
+    ctx.strokeStyle = "rgba(255,255,255,0.35)";
+    ctx.strokeRect(barX, barY, barW, barH);
+    const mark = barX + demo.threshold * barW;
+    ctx.beginPath();
+    ctx.strokeStyle = "#f6f1ea";
+    ctx.lineWidth = 2;
+    ctx.moveTo(mark, barY - 2);
+    ctx.lineTo(mark, barY + barH + 2);
+    ctx.stroke();
+    ctx.fillStyle = "#e7dfd6";
+    ctx.font = `${Math.round(h * 0.028)}px "Source Sans 3", sans-serif`;
+    ctx.textAlign = "center";
+    ctx.textBaseline = "bottom";
+    ctx.fillText("missed-car score", barX + barW / 2, barY - 3);
+    ctx.textBaseline = "top";
+    ctx.textAlign = "left";
+    ctx.fillText("0", barX, barY + barH + 2);
+    ctx.textAlign = "right";
+    ctx.fillText("1", barX + barW, barY + barH + 2);
+    ctx.textAlign = "center";
+    ctx.fillText("0.45", mark, barY + barH + 2);
 
     METHODS.forEach((method, k) => {
       const row = Math.floor(k / cols);
@@ -184,23 +212,24 @@
           else ctx.lineTo(vertex[0], vertex[1]);
         });
         ctx.closePath();
-        ctx.fillStyle = islandColor(mode.severity, covered.has(id) ? 0.72 : 0.28);
+        ctx.fillStyle = scoreColor(mode.severity, covered.has(id) ? 0.38 : 0.16);
         ctx.fill();
-        if (covered.has(id)) {
-          ctx.strokeStyle = method.color;
-          ctx.lineWidth = Math.max(1.6, w / 420);
-          ctx.stroke();
-        }
+        ctx.strokeStyle = covered.has(id) ? method.color : "rgba(255,255,255,0.2)";
+        ctx.lineWidth = covered.has(id) ? Math.max(1.6, w / 420) : 1;
+        ctx.stroke();
       });
 
-      const radius = Math.max(1.3, w / 460);
+      const radius = Math.max(1.6, w / 380);
       for (let i = 0; i < n; i++) {
         const point = demo.points[order[i]];
         const [x, y] = xy(x0, y0, point);
         ctx.beginPath();
-        ctx.fillStyle = point[2] ? method.color : "rgba(255,255,255,0.45)";
-        ctx.arc(x, y, point[2] ? radius * 2.1 : radius, 0, Math.PI * 2);
+        ctx.fillStyle = scoreColor(point[4], 1);
+        ctx.arc(x, y, point[2] ? radius * 1.7 : radius, 0, Math.PI * 2);
         ctx.fill();
+        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(22,16,12,0.55)";
+        ctx.stroke();
       }
     });
   }
@@ -226,7 +255,7 @@
     document.getElementById("n-severe").textContent = String(oursNow);
     document.getElementById("n-proxy").textContent = String(proxyNow);
     document.getElementById("n-real").textContent = String(realNow);
-    inspect.textContent = `Ours has found ${oursNow} severe real failures. Proxy only has ${proxyNow}. Real only has ${realNow}. Hotter islands are more severe, and a colored outline means that method has a severe label there.`;
+    inspect.textContent = `Ours has found ${oursNow} severe real failures. Proxy only has ${proxyNow}. Real only has ${realNow}. Dot color is the missed-car score. An outline means that method has a severe label in that island.`;
   }
 
   function step() {
@@ -261,7 +290,7 @@
   document.getElementById("reset").onclick = () => reset(seedSlot + 1);
   window.addEventListener("resize", () => { resize(); if (demo) render(); });
 
-  fetch("assets/kitti_demo.json?v=3")
+  fetch("assets/kitti_demo.json?v=4")
     .then((response) => response.json())
     .then((data) => {
       demo = data;
