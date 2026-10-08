@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""Export a small paired KITTI / Virtual KITTI set for the project-page demo."""
+"""Export the project-page KITTI demo from the 85-label acquisition runs.
+
+The page draws one real-KITTI severity curve per method and a shared t-SNE.
+Clips are a short subsample of our method's labeled frames.
+"""
 
 from __future__ import annotations
 
@@ -10,39 +14,29 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from PIL import Image
+from sklearn.manifold import TSNE
+from sklearn.preprocessing import StandardScaler
 
 ROOT = Path(__file__).resolve().parents[2]
-SRC = Path(os.environ["KITTI_IMAGE_ROOT"])
+RUNS = Path(os.environ["SCOUT_RUN_ROOT"])
+IMAGES = Path(os.environ["KITTI_IMAGE_ROOT"])
 CSV = ROOT / "data/kitti_vkitti/paired_detection_task_linked.csv"
+FEATURES = RUNS / "X_rich.npy"
 OUT_DIR = ROOT / "docs/assets/kitti"
-OUT_JSON = ROOT / "docs/assets/kitti_pool.json"
-N_FRAMES = 72
-FEATS = [
-    "num_cars",
-    "mean_bbox_area_ratio",
-    "min_bbox_area_ratio",
-    "max_bbox_area_ratio",
-    "mean_bbox_height_ratio",
-    "image_brightness",
-]
+OUT_JSON = ROOT / "docs/assets/kitti_demo.json"
+THRESHOLD = 0.45
+BUDGET = 85
+N_INIT = 10
+N_CLIPS = 15
+# Seed 1 is first: proxy-only finishes furthest behind on severe real frames.
+SEEDS = (1, 0, 2)
 
-
-def _pca(frame: pd.DataFrame) -> np.ndarray:
-    x = frame[FEATS].to_numpy(np.float64)
-    x = (x - x.mean(0)) / (x.std(0) + 1e-8)
-    _, _, vt = np.linalg.svd(x, full_matrices=False)
-    xy = x @ vt[:2].T
-    return xy / (np.percentile(np.abs(xy), 98) + 1e-8)
-
-
-def _choose(xy: np.ndarray, target: np.ndarray, n: int) -> list[int]:
-    chosen = [int(np.argmax(target)), int(np.argmin(target))]
-    while len(chosen) < n:
-        rest = [i for i in range(len(xy)) if i not in chosen]
-        dist = np.linalg.norm(xy[rest][:, None, :] - xy[chosen][None, :, :], axis=-1).min(1)
-        score = dist + 0.35 * target[rest]
-        chosen.append(rest[int(np.argmax(score))])
-    return chosen
+METHODS = (
+    ("ours", "ablation_local_cv/detector/seed_{seed}/with_beta/train_indices.npy"),
+    ("proxy", "ablation_local_cv/detector/seed_{seed}/offline_proxy/train_indices.npy"),
+    ("real", "ablation_local_cv/detector/seed_{seed}/real_only/train_indices.npy"),
+    ("mi", "ablation_mi_only/detector/seed_{seed}/with_beta/train_indices.npy"),
+)
 
 
 def _thumb(src: Path, dest: Path) -> None:
@@ -52,45 +46,118 @@ def _thumb(src: Path, dest: Path) -> None:
     image.save(dest, format="JPEG", quality=72, optimize=True)
 
 
+def _order(seed: int, method: str) -> np.ndarray:
+    if method == "random":
+        init = _order(seed, "ours")[:N_INIT]
+        remain = np.setdiff1d(np.arange(_order.n), init)
+        extra = np.random.default_rng(seed).choice(remain, BUDGET - N_INIT, replace=False)
+        return np.concatenate([init, extra]).astype(int)
+    path = RUNS / METHODS[[m[0] for m in METHODS].index(method)][1].format(seed=seed)
+    order = np.load(path).astype(int)
+    if len(order) != BUDGET:
+        raise SystemExit(f"{path} has {len(order)} labels, expected {BUDGET}")
+    return order
+
+
+def _clips(frame: pd.DataFrame, target: np.ndarray, order: np.ndarray) -> list[dict]:
+    stops = np.linspace(N_INIT - 1, BUDGET - 1, N_CLIPS).round().astype(int)
+    clips = []
+    prev = -1
+    for stop in stops:
+        window = order[prev + 1 : stop + 1]
+        severe = [int(i) for i in window if target[i] >= THRESHOLD]
+        chosen = severe[-1] if severe else int(order[stop])
+        row = frame.loc[chosen]
+        sid = str(row["scenario_id"])
+        clips.append({
+            "at": int(stop + 1),
+            "id": sid,
+            "seq": str(row["sequence_id"]).zfill(4),
+            "frame": int(row["frame_id"]),
+            "target": round(float(target[chosen]), 3),
+            "severe": bool(target[chosen] >= THRESHOLD),
+            "real": f"assets/kitti/{sid}_real.jpg",
+            "proxyImg": f"assets/kitti/{sid}_proxy.jpg",
+            "_real_src": str(row["real_image_path"]),
+            "_proxy_src": str(row["proxy_image_path"]),
+        })
+        prev = int(stop)
+    return clips
+
+
 def main() -> None:
     frame = pd.read_csv(CSV)
-    xy = _pca(frame)
     target = frame["target_failure"].to_numpy(np.float64)
-    keep = []
-    for index in _choose(xy, target, N_FRAMES * 2):
-        real = SRC / frame.at[index, "real_image_path"]
-        proxy = SRC / frame.at[index, "proxy_image_path"]
-        if real.is_file() and proxy.is_file():
-            keep.append(index)
-        if len(keep) == N_FRAMES:
-            break
-    if len(keep) < N_FRAMES:
-        raise SystemExit(f"only found {len(keep)} paired images")
+    features = np.load(FEATURES)
+    if len(frame) != len(features):
+        raise SystemExit(f"feature rows {len(features)} != csv rows {len(frame)}")
+    _order.n = len(frame)
+
+    scaled = StandardScaler().fit_transform(np.nan_to_num(features, nan=0.0))
+    embedded = TSNE(
+        n_components=2,
+        perplexity=30,
+        init="pca",
+        learning_rate="auto",
+        random_state=0,
+    ).fit_transform(scaled)
+    span = embedded.max(0) - embedded.min(0)
+    embedded = (embedded - embedded.min(0)) / (span + 1e-9)
+    points = [
+        [round(float(xy[0]), 4), round(float(xy[1]), 4), int(score >= THRESHOLD)]
+        for xy, score in zip(embedded, target)
+    ]
+
+    seeds = []
+    needed: dict[str, tuple[str, str]] = {}
+    for seed in SEEDS:
+        orders = {name: _order(seed, name).tolist() for name, _ in METHODS}
+        orders["random"] = _order(seed, "random").tolist()
+        ours = np.asarray(orders["ours"])
+        for name, order in orders.items():
+            if order[:N_INIT] != orders["ours"][:N_INIT]:
+                raise SystemExit(f"seed {seed} {name} does not share the initial labels")
+        ours_hits = int((target[ours] >= THRESHOLD).sum())
+        for name in ("proxy", "real"):
+            other_hits = int((target[np.asarray(orders[name])] >= THRESHOLD).sum())
+            if ours_hits < other_hits + 4:
+                raise SystemExit(
+                    f"seed {seed}: {name} severe count {other_hits} is not under ours {ours_hits}"
+                )
+        clips = _clips(frame, target, ours)
+        for clip in clips:
+            needed[clip["id"]] = (clip.pop("_real_src"), clip.pop("_proxy_src"))
+        seeds.append({"seed": seed, "orders": orders, "clips": clips})
 
     OUT_DIR.mkdir(parents=True, exist_ok=True)
-    records = []
-    for index in keep:
-        row = frame.loc[index]
-        sid = str(row["scenario_id"])
-        real_name = f"{sid}_real.jpg"
-        proxy_name = f"{sid}_proxy.jpg"
-        _thumb(SRC / row["real_image_path"], OUT_DIR / real_name)
-        _thumb(SRC / row["proxy_image_path"], OUT_DIR / proxy_name)
-        records.append({
-            "id": sid,
-            "seq": str(row["sequence_id"]),
-            "frame": int(row["frame_id"]),
-            "x": round(float(xy[index, 0]), 4),
-            "y": round(float(xy[index, 1]), 4),
-            "proxy": round(float(row["proxy_failure"]), 4),
-            "target": round(float(row["target_failure"]), 4),
-            "cars": int(row["num_cars"]),
-            "real": f"assets/kitti/{real_name}",
-            "proxyImg": f"assets/kitti/{proxy_name}",
-        })
-    OUT_JSON.write_text(json.dumps({"frames": records}, indent=1))
-    nbytes = sum(p.stat().st_size for p in OUT_DIR.glob("*.jpg"))
-    print(f"wrote {len(records)} pairs, {nbytes/1e6:.1f} MB, {OUT_JSON}")
+    for sid, (real_src, proxy_src) in needed.items():
+        real = IMAGES / real_src
+        proxy = IMAGES / proxy_src
+        if not real.is_file() or not proxy.is_file():
+            raise SystemExit(f"missing image for {sid}")
+        _thumb(real, OUT_DIR / f"{sid}_real.jpg")
+        _thumb(proxy, OUT_DIR / f"{sid}_proxy.jpg")
+    keep = {f"{sid}_{side}.jpg" for sid in needed for side in ("real", "proxy")}
+    for path in OUT_DIR.glob("*.jpg"):
+        if path.name not in keep:
+            path.unlink()
+    pool = ROOT / "docs/assets/kitti_pool.json"
+    if pool.exists():
+        pool.unlink()
+
+    payload = {
+        "threshold": THRESHOLD,
+        "budget": BUDGET,
+        "nInit": N_INIT,
+        "points": points,
+        "seeds": seeds,
+    }
+    OUT_JSON.write_text(json.dumps(payload, separators=(",", ":")))
+    nbytes = sum(path.stat().st_size for path in OUT_DIR.glob("*.jpg"))
+    print(
+        f"wrote {OUT_JSON.name} ({OUT_JSON.stat().st_size/1e3:.0f} KB), "
+        f"{len(needed)} clip pairs, {nbytes/1e6:.1f} MB"
+    )
 
 
 if __name__ == "__main__":

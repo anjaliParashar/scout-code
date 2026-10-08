@@ -108,19 +108,23 @@ h3 { margin: 0 0 8px; font-size: 20px; }
 
 .failure-note { margin: 0 0 14px; color: #e7dfd6; font-size: 16px; max-width: 860px; }
 .failure-note strong { color: white; }
-.demo-layout { display: grid; grid-template-columns: 1.45fr 0.7fr; gap: 16px; align-items: start; }
-#curves { width: 100%; height: auto; aspect-ratio: 16 / 8.5; background: transparent; }
+.demo-layout { display: grid; grid-template-columns: 1.05fr 0.95fr; gap: 16px; align-items: start; }
+#curves, #tsne { width: 100%; height: auto; background: transparent; display: block; }
+#curves { aspect-ratio: 16 / 11; }
+#tsne { aspect-ratio: 1; }
 .legend { display: flex; gap: 14px; flex-wrap: wrap; list-style: none; margin: 8px 0 0; padding: 0; color: #e7dfd6; font-size: 14px; }
 .legend li { display: flex; align-items: center; gap: 6px; }
 .swatch { width: 14px; height: 4px; border-radius: 99px; display: inline-block; }
 .swatch.ours { background: #e4572e; }
 .swatch.proxy { background: #4c9be8; }
+.swatch.real { background: #6fbf73; }
 .swatch.mi { background: #e3b341; }
 .swatch.random { background: #b7aea4; }
-.pair { display: flex; flex-direction: column; gap: 12px; }
-.pair figure { margin: 0; }
-.pair img { width: 100%; border-radius: 10px; background: #111; aspect-ratio: 1242 / 375; object-fit: cover; }
-.pair figcaption { color: #d9cfc3; font-size: 14px; margin-top: 4px; }
+.clip-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+.clip-row figure { margin: 0; }
+.clip-row img { width: 100%; border-radius: 10px; background: #111; aspect-ratio: 1242 / 375; object-fit: cover; }
+.clip-row figcaption, .clip-row p { color: #d9cfc3; font-size: 14px; }
+.clip-row p { margin: 0 0 6px; letter-spacing: 0.04em; text-transform: uppercase; color: #c8bfb4; }
 .panel { min-width: 0; }
 .panel p { margin: 0 0 6px; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: #c8bfb4; }
 canvas { width: 100%; height: auto; border-radius: 12px; background: #111; }
@@ -184,6 +188,6 @@ td.best { background: var(--hot-soft); font-weight: 700; }
 footer { padding: 10px 0 40px; color: var(--muted); font-size: 14px; }
 
 @media (max-width: 800px) {
-  .demo-layout, .cards, .video-grid { grid-template-columns: 1fr; }
+  .demo-layout, .cards, .video-grid, .clip-row { grid-template-columns: 1fr; }
   .hero { padding-top: 28px; }
 }

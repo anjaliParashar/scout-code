@@ -42,41 +42,46 @@
             <button type="button" id="reset">New seed</button>
           </div>
         </div>
-        <p class="failure-note"><strong>Failure</strong> is the missed-car score: one minus the average overlap between the detector’s boxes and the ground-truth cars. Higher means more of the cars were missed. The same score is computed on the real KITTI frame and on its Virtual KITTI clone.</p>
+        <p class="failure-note"><strong>Failure</strong> is the missed-car score on real KITTI: one minus the average overlap between the detector’s boxes and the ground-truth cars. A frame counts as severe when that score is at least 0.45. Proxy only ranks frames by the simulator surrogate. Real only spends the same labels without that surrogate. The t-SNE is where the labeled frames sit in the scene embedding.</p>
         <div class="demo-layout">
           <div class="panel">
-            <canvas id="curves" width="900" height="420"></canvas>
+            <canvas id="curves" width="900" height="520"></canvas>
             <ul class="legend">
               <li><i class="swatch ours"></i>Ours</li>
               <li><i class="swatch proxy"></i>Proxy only</li>
+              <li><i class="swatch real"></i>Real only</li>
               <li><i class="swatch mi"></i>MI only</li>
               <li><i class="swatch random"></i>Random</li>
             </ul>
           </div>
-          <div class="pair">
-            <figure>
-              <p>Virtual KITTI</p>
-              <img id="proxy-img" alt="Virtual KITTI frame currently selected">
-              <figcaption id="proxy-score"></figcaption>
-            </figure>
-            <figure>
-              <p>KITTI</p>
-              <img id="real-img" alt="Real KITTI frame currently selected">
-              <figcaption id="real-score"></figcaption>
-            </figure>
+          <div class="panel">
+            <canvas id="tsne" width="640" height="640"></canvas>
           </div>
+        </div>
+        <div class="clip-row">
+          <figure>
+            <p>KITTI</p>
+            <img id="real-img" alt="Real KITTI frame from our method">
+            <figcaption id="real-score"></figcaption>
+          </figure>
+          <figure>
+            <p>Virtual KITTI clone</p>
+            <img id="proxy-img" alt="Virtual KITTI clone of the same frame">
+            <figcaption id="proxy-score"></figcaption>
+          </figure>
         </div>
         <div class="budget">
           <div class="budget-track"><div class="budget-fill" id="budget-fill"></div></div>
-          <span id="budget-text">target budget  0 / 12</span>
+          <span id="budget-text">real labels  0 / 85</span>
         </div>
-        <p class="readout" id="readout">Loading paired KITTI frames…</p>
+        <p class="readout" id="readout">Loading the KITTI acquisition…</p>
         <div class="stats">
           <div><b id="n-used">0</b><span>real frames labeled</span></div>
-          <div><b id="n-mean">0</b><span>mean target failure</span></div>
-          <div><b id="n-severe">0</b><span>failures above 0.5</span></div>
+          <div><b id="n-severe">0</b><span>severe failures, ours</span></div>
+          <div><b id="n-proxy">0</b><span>severe failures, proxy only</span></div>
+          <div><b id="n-real">0</b><span>severe failures, real only</span></div>
         </div>
-        <p class="inspect" id="inspect">Each step adds one frame per method. The pictures are the frame our method just labeled.</p>
+        <p class="inspect" id="inspect">Fifteen clips step through all 85 real labels. The pictures are frames our method labeled.</p>
       </div>
       <div class="cards" style="margin-top: 16px">
         <article class="card">
@@ -88,8 +93,8 @@
           <p>On the shortlist only, a local control variate estimates the target score from the surrogate and the free simulator. The proxy is a covariate, not the answer.</p>
         </article>
         <article class="card">
-          <h3>3. Spend one real label</h3>
-          <p>The chosen frame is labeled with the real KITTI missed-car score. The picture pair updates so you can see the clone and the real road scene that score came from.</p>
+          <h3>3. Spend the real label</h3>
+          <p>Each method labels 85 real KITTI frames from the same 10-frame start. The pictures skip ahead through that run, about 15 clips in all.</p>
         </article>
       </div>
     </section>
