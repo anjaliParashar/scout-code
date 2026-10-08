@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SCOUT — Coverage-aware failure discovery with paired systems</title>
+  <meta name="description" content="Project page for coverage-aware active evaluation of paired proxy and target systems. Interactive 2-D demo, paper, code, and the quadruped supplementary video.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,560&family=Source+Sans+3:wght@400;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header>
+    <div class="wrap nav">
+      <a class="brand" href="#top">SCOUT</a>
+      <nav class="nav-links">
+        <a href="#demo">Demo</a>
+        <a href="#results">Results</a>
+        <a class="primary" href="https://arxiv.org/pdf/2608.13719">Paper</a>
+        <a href="https://github.com/anjaliParashar/scout-code">Code</a>
+        <a href="#video">Video</a>
+      </nav>
+    </div>
+  </header>
+
+  <main id="top">
+    <section class="wrap hero">
+      <h1>Find the failures the simulator misses.</h1>
+      <p class="lede">SCOUT spends a small target-system budget where a cheap proxy is informative, and uses support-aware mutual information so those labels cover more than one failure mode.</p>
+      <p class="authors">Anjali Parashar, Rachel Luo, Apoorva Sharma, Sushant Veer, Edward Schmerling, Carson Sobolewski, Mingxin Yu, Chuchu Fan, Marco Pavone · MIT LIDS and NVIDIA Research</p>
+    </section>
+
+    <section class="wrap section" id="demo">
+      <div class="stage">
+        <div class="stage-top">
+          <h2>Try the rule</h2>
+          <div class="controls">
+            <button type="button" data-method="ours" class="active">Ours</button>
+            <button type="button" data-method="proxy">Proxy only</button>
+            <button type="button" data-method="mi">MI only</button>
+            <button type="button" data-method="random">Random</button>
+            <button type="button" id="play">Play</button>
+            <button type="button" id="pause">Pause</button>
+            <button type="button" id="step">Step</button>
+            <button type="button" id="reset">New seed</button>
+          </div>
+        </div>
+        <div class="canvases">
+          <div class="panel">
+            <p>Simulated system</p>
+            <canvas id="sim" width="640" height="640"></canvas>
+          </div>
+          <div class="panel">
+            <p>Target system</p>
+            <canvas id="target" width="640" height="640"></canvas>
+          </div>
+        </div>
+        <div class="budget">
+          <div class="budget-track"><div class="budget-fill" id="budget-fill"></div></div>
+          <span id="budget-text">target budget  0 / 16</span>
+        </div>
+        <p class="readout" id="readout">Press play. Each step spends one real label.</p>
+        <div class="stats">
+          <div><b id="n-used">0</b><span>labels spent</span></div>
+          <div><b id="n-fail">0</b><span>target failures</span></div>
+          <div><b id="n-left">0</b><span>left diamond</span></div>
+          <div><b id="n-right">0</b><span>right diamond</span></div>
+        </div>
+        <p class="inspect" id="inspect">Hover the target field to compare the simulator and the learned score.</p>
+      </div>
+      <div class="cards" style="margin-top: 16px">
+        <article class="card">
+          <h3>1. Shortlist</h3>
+          <p>Cluster the labels already collected. Designs that sit outside that support, or on the boundary between clusters, get a high mutual-information score. Gold marks are that shortlist.</p>
+        </article>
+        <article class="card">
+          <h3>2. Correct the proxy</h3>
+          <p>On the shortlist only, a local control variate estimates the target score from the surrogate and the free simulator. The proxy is a covariate, not the answer.</p>
+        </article>
+        <article class="card">
+          <h3>3. Spend one real label</h3>
+          <p>The chosen design is evaluated on the target system, the surrogate updates, and the budget bar advances. The left diamond is real and almost absent from the simulator.</p>
+        </article>
+      </div>
+    </section>
+
+    <section class="wrap section" id="video">
+      <h2>Supplementary video</h2>
+      <p class="sub">Quadruped velocity-tracking on a Unitree Go2. The commands in the video are ones the method predicted as failures or as a non-failure.</p>
+      <div class="video-hero card">
+        <video id="paper-video" controls playsinline preload="metadata" poster="assets/quadruped.png">
+          <source src="assets/video.mp4" type="video/mp4">
+        </video>
+        <p class="missing" id="video-missing" hidden>The supplementary file <code>docs/assets/video.mp4</code> is not in this checkout yet.</p>
+        <figcaption>Hardware demos from the paper: two failure commands and one non-failure, selected from the learned failure predictor.</figcaption>
+      </div>
+      <h3 style="margin-top: 22px">Paired SIMPLER rollouts</h3>
+      <p class="sub">Same grasp, two visual simulators. The gap case is a success in the proxy and a miss on the target.</p>
+      <div class="video-grid">
+        <figure class="video-card">
+          <img src="assets/simpler_both_ok.png" alt="Proxy and target both grasp the can">
+          <figcaption>Both succeed</figcaption>
+        </figure>
+        <figure class="video-card">
+          <img src="assets/simpler_both_fail.png" alt="Proxy and target both miss the can">
+          <figcaption>Both fail</figcaption>
+        </figure>
+        <figure class="video-card">
+          <img src="assets/simpler_gap.png" alt="Proxy grasps the can and the target misses">
+          <figcaption>Proxy succeeds, target fails</figcaption>
+        </figure>
+      </div>
+    </section>
+
+    <section class="wrap section" id="results">
+      <h2>Results</h2>
+      <p class="sub">Same target budget for every method. Curves are mean ± std from the paper runs in the research repository, including nuPlan.</p>
+      <div class="task-tabs" id="task-tabs">
+        <button type="button" data-task="nuplan" class="active">nuPlan</button>
+        <button type="button" data-task="kitti">KITTI</button>
+        <button type="button" data-task="simpler">SIMPLER</button>
+        <button type="button" data-task="quad">Quadruped</button>
+      </div>
+
+      <div class="task" id="task-nuplan">
+        <figure class="figure">
+          <img src="assets/nuplan.png" alt="nuPlan cumulative severity, coverage, and positive samples">
+          <figcaption>Closed-loop driving. Proxy is open-loop playback. Failure is time-to-collision. Budget 170 after 20 initial labels, batches of 5. Ours leads coverage and the fraction of failures.</figcaption>
+        </figure>
+        <div class="table-wrap" style="margin-top: 12px">
+          <table>
+            <caption style="text-align:left; padding: 8px 10px; color: var(--muted)">Positive-sample rate on nuPlan, mean ± std over four seeds.</caption>
+            <thead>
+              <tr><th>Threshold γ</th><th>Random</th><th>BNN-C</th><th>BAMS</th><th>BNN-CV</th><th>Ours</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>0.30</td><td>0.23 ± 0.01</td><td>0.25 ± 0.01</td><td>0.28 ± 0.01</td><td>0.27 ± 0.01</td><td class="best">0.33 ± 0.01</td></tr>
+              <tr><td>0.20</td><td>0.22 ± 0.00</td><td>0.24 ± 0.02</td><td>0.27 ± 0.01</td><td>0.26 ± 0.01</td><td class="best">0.32 ± 0.01</td></tr>
+              <tr><td>0.05</td><td>0.21 ± 0.01</td><td>0.21 ± 0.02</td><td>0.25 ± 0.01</td><td>0.22 ± 0.02</td><td class="best">0.29 ± 0.01</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <figure class="figure" style="margin-top: 12px">
+          <img src="assets/nuplan_tsne.png" alt="t-SNE of nuPlan scenarios colored by failure and method">
+          <figcaption>t-SNE of the 384-dimensional scenario embedding. Support-aware mutual information keeps new labels off the regions that are already covered, whatever the initial sample looked like.</figcaption>
+        </figure>
+      </div>
+
+      <div class="task hidden" id="task-kitti">
+        <figure class="figure">
+          <img src="assets/kitti.png" alt="KITTI cumulative failure, regret, and top-10 percent recall">
+          <figcaption>Real KITTI missed-car rate against the Virtual KITTI clone of the same frame. Keeping the proxy term (β) raises the cumulative failure of the labels that are actually collected and recalls more of the worst frames.</figcaption>
+        </figure>
+        <div class="table-wrap" style="margin-top: 12px">
+          <table>
+            <caption style="text-align:left; padding: 8px 10px; color: var(--muted)">KITTI component ablation from the paper.</caption>
+            <thead>
+              <tr><th></th><th>Full</th><th>Greedy</th><th>β = 0 (n+k)</th><th>β = 0</th><th>MI</th><th>−MI−C</th><th>−MI−G</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>Utility</td><td>0.38</td><td>0.38</td><td>0.36</td><td>0.36</td><td>0.32</td><td>0.40</td><td>0.41</td></tr>
+              <tr><td>P.S. at 0.5</td><td>0.24</td><td>0.22</td><td>0.14</td><td>0.17</td><td>0.11</td><td>0.30</td><td>0.32</td></tr>
+              <tr><td>P.S. at 0.7</td><td class="best">0.03</td><td>0.01</td><td>0.02</td><td>0.01</td><td>0.02</td><td>0.02</td><td>0.01</td></tr>
+              <tr><td>Coverage</td><td>0.78</td><td>0.58</td><td>0.79</td><td>0.72</td><td class="best">0.91</td><td>0.60</td><td>0.48</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="task hidden" id="task-simpler">
+        <figure class="figure">
+          <img src="assets/simpler.png" alt="SIMPLER cumulative failure, coverage, and positive samples">
+          <figcaption>RT-1-X grasp-and-lift in two photorealistic simulators. The failure label is sparse, so mutual information matters: without it, BNN-CV stays close to random. Visual clutter and camera pose are the dominant modes.</figcaption>
+        </figure>
+      </div>
+
+      <div class="task hidden" id="task-quad">
+        <figure class="figure">
+          <img src="assets/quadruped.png" alt="Quadruped cumulative tracking error, coverage, and positive samples">
+          <figcaption>Unitree Go2 velocity tracking. Proxy is a MuJoCo RL policy. Target budget 30 after 10 initial commands, batches of 5. Failure is mean tracking error above 0.7.</figcaption>
+        </figure>
+        <figure class="figure" style="margin-top: 12px">
+          <img src="assets/quadruped_scatter.png" alt="Quadruped commands found by our method and by BAMS">
+          <figcaption>Commands in (v<sub>y</sub>, ω<sub>z</sub>). BAMS concentrates near the threshold. The learned score has two symmetric failure modes, matching the task.</figcaption>
+        </figure>
+        <div class="table-wrap" style="margin-top: 12px">
+          <table>
+            <caption style="text-align:left; padding: 8px 10px; color: var(--muted)">Positive-sample rate by severity. BAMS finds none of the failures at γ = 1.0.</caption>
+            <thead>
+              <tr><th>γ</th><th>Ours</th><th>BAMS</th></tr>
+            </thead>
+            <tbody>
+              <tr><td>0.7</td><td class="best">0.6 ± 0.1</td><td>0.5 ± 0.1</td></tr>
+              <tr><td>0.8</td><td>0.3 ± 0.1</td><td>0.3 ± 0.2</td></tr>
+              <tr><td>1.0</td><td class="best">0.2 ± 0.1</td><td>0.0 ± 0.0</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="wrap">
+      <a href="https://arxiv.org/pdf/2608.13719">Paper (PDF)</a>
+      · <a href="https://arxiv.org/abs/2608.13719">arXiv</a>
+      · <a href="https://github.com/anjaliParashar/scout-code">Code</a>
+      · <a href="#video">Video</a>
+    </div>
+  </footer>
+  <script src="demo.js"></script>
+  <script>
+    document.getElementById("task-tabs").addEventListener("click", (ev) => {
+      const btn = ev.target.closest("button");
+      if (!btn) return;
+      document.querySelectorAll("#task-tabs button").forEach((b) => b.classList.remove("active"));
+      btn.classList.add("active");
+      document.querySelectorAll(".task").forEach((el) => el.classList.add("hidden"));
+      document.getElementById("task-" + btn.dataset.task).classList.remove("hidden");
+    });
+  </script>
+</body>
+</html>

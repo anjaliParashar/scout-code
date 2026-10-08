@@ -4,6 +4,8 @@
   <img src="docs/toy2d.gif" alt="Static simulated system beside the target system as real labels are acquired" width="860">
 </p>
 
+Project page, with an interactive 2-D demo, paper results, and the supplementary video: [docs/index.html](docs/index.html). Paper: [arXiv:2608.13719](https://arxiv.org/pdf/2608.13719).
+
 SCOUT looks for failures of a real system by choosing which scenarios to label next. A mutual-information shortlist proposes scenarios the current labels do not explain. A control variate then re-ranks that shortlist with a cheap proxy, so the next real labels land where the proxy-corrected failure score is high.
 
 Shared estimators live in `scout/`. KITTI, SIMPLER, and the quadruped task import that package. The 2-D notebook does not: it runs on its own.
