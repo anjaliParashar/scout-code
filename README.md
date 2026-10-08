@@ -36,7 +36,7 @@ From a checkout:
 jupyter notebook notebooks/scout_demo.ipynb
 ```
 
-In Colab, open that file. The first cell installs dependencies and, if the package is not already on the path, clones this repository.
+In Colab, open `notebooks/scout_demo.ipynb` from [github.com/anjaliParashar/scout-code](https://github.com/anjaliParashar/scout-code). The first cell installs dependencies and clones that repository when the package is not already on the path.
 
 ## 2-D toy
 
