@@ -64,38 +64,33 @@ def _order(seed: int, method: str) -> np.ndarray:
 
 
 def _separate(embedded: np.ndarray, labels: np.ndarray) -> np.ndarray:
-    """Move each mode so its bounding circle does not meet the others."""
+    """Give every mode the same size, then leave only a small gap between them."""
     xy = embedded.astype(np.float64).copy()
     modes = np.unique(labels)
     centers = np.stack([xy[labels == mode].mean(0) for mode in modes])
-    radii = np.array([
-        np.linalg.norm(xy[labels == mode] - centers[i], axis=1).max()
-        for i, mode in enumerate(modes)
-    ])
-    gap = 0.15 * float(np.median(radii))
-    for _ in range(120):
+    for i, mode in enumerate(modes):
+        members = xy[labels == mode]
+        radius = float(np.linalg.norm(members - centers[i], axis=1).max())
+        xy[labels == mode] = centers[i] + (members - centers[i]) / max(radius, 1e-6)
+    centers = np.stack([xy[labels == mode].mean(0) for mode in modes])
+    need = 2.18
+    for _ in range(200):
+        moved = False
         for i in range(len(modes)):
             for j in range(i + 1, len(modes)):
                 delta = centers[i] - centers[j]
                 dist = float(np.linalg.norm(delta)) + 1e-6
-                need = float(radii[i] + radii[j] + gap)
                 if dist >= need:
                     continue
                 shift = 0.5 * (need - dist) * delta / dist
                 centers[i] += shift
                 centers[j] -= shift
+                moved = True
+        if not moved:
+            break
     for i, mode in enumerate(modes):
         members = xy[labels == mode]
         xy[labels == mode] = members + (centers[i] - members.mean(0))
-    centers = np.stack([xy[labels == mode].mean(0) for mode in modes])
-    for i, mode in enumerate(modes):
-        others = np.linalg.norm(centers - centers[i], axis=1)
-        others[i] = np.inf
-        allow = 0.42 * float(others.min())
-        members = xy[labels == mode]
-        radius = float(np.linalg.norm(members - centers[i], axis=1).max())
-        if radius > allow:
-            xy[labels == mode] = centers[i] + (members - centers[i]) * (allow / radius)
     return xy
 
 
@@ -145,7 +140,7 @@ def main() -> None:
     ).fit_transform(reduced)
     embedded = _separate(embedded, labels)
     lo, hi = embedded.min(0), embedded.max(0)
-    embedded = 0.06 + 0.88 * (embedded - lo) / (hi - lo + 1e-9)
+    embedded = 0.02 + 0.96 * (embedded - lo) / (hi - lo + 1e-9)
     points = [
         [
             round(float(xy[0]), 4),

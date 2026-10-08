@@ -136,7 +136,7 @@
     const foot = Math.round(h * 0.1);
     const panelW = (w - gap * (cols + 1)) / cols;
     const panelH = (h - head - foot - gap * (rows + 1)) / rows;
-    const pad = Math.round(Math.min(panelW, panelH) * 0.08);
+    const pad = Math.round(Math.min(panelW, panelH) * 0.04);
 
     function xy(panelX, panelY, point) {
       return [
@@ -219,13 +219,13 @@
         ctx.stroke();
       });
 
-      const radius = Math.max(1.6, w / 380);
+      const radius = Math.max(4.5, w / 145);
       for (let i = 0; i < n; i++) {
         const point = demo.points[order[i]];
         const [x, y] = xy(x0, y0, point);
         ctx.beginPath();
         ctx.fillStyle = scoreColor(point[4], 1);
-        ctx.arc(x, y, point[2] ? radius * 1.7 : radius, 0, Math.PI * 2);
+        ctx.arc(x, y, point[2] ? radius * 1.35 : radius, 0, Math.PI * 2);
         ctx.fill();
         ctx.lineWidth = 1;
         ctx.strokeStyle = "rgba(22,16,12,0.55)";
@@ -290,7 +290,7 @@
   document.getElementById("reset").onclick = () => reset(seedSlot + 1);
   window.addEventListener("resize", () => { resize(); if (demo) render(); });
 
-  fetch("assets/kitti_demo.json?v=4")
+  fetch("assets/kitti_demo.json?v=5")
     .then((response) => response.json())
     .then((data) => {
       demo = data;
