@@ -14,6 +14,9 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from PIL import Image
+from scipy.spatial import ConvexHull
+from sklearn.cluster import KMeans
+from sklearn.decomposition import PCA
 from sklearn.manifold import TSNE
 from sklearn.preprocessing import StandardScaler
 
@@ -28,6 +31,7 @@ THRESHOLD = 0.45
 BUDGET = 85
 N_INIT = 10
 N_CLIPS = 15
+N_MODES = 8
 # Seed 1 is first: proxy-only finishes furthest behind on severe real frames.
 SEEDS = (1, 0, 2)
 
@@ -94,19 +98,40 @@ def main() -> None:
     _order.n = len(frame)
 
     scaled = StandardScaler().fit_transform(np.nan_to_num(features, nan=0.0))
+    reduced = PCA(n_components=8, random_state=0).fit_transform(scaled)
+    labels = KMeans(N_MODES, n_init=20, random_state=0).fit_predict(reduced)
     embedded = TSNE(
         n_components=2,
-        perplexity=30,
+        perplexity=20,
         init="pca",
         learning_rate="auto",
         random_state=0,
-    ).fit_transform(scaled)
+    ).fit_transform(reduced)
     span = embedded.max(0) - embedded.min(0)
     embedded = (embedded - embedded.min(0)) / (span + 1e-9)
     points = [
-        [round(float(xy[0]), 4), round(float(xy[1]), 4), int(score >= THRESHOLD)]
-        for xy, score in zip(embedded, target)
+        [
+            round(float(xy[0]), 4),
+            round(float(xy[1]), 4),
+            int(score >= THRESHOLD),
+            int(mode),
+        ]
+        for xy, score, mode in zip(embedded, target, labels)
     ]
+    modes = []
+    for mode in range(N_MODES):
+        members = embedded[labels == mode]
+        center = members.mean(0)
+        if len(members) >= 3:
+            hull = members[ConvexHull(members).vertices]
+            hull = center + 1.08 * (hull - center)
+        else:
+            hull = members
+        hull = np.clip(hull, 0.0, 1.0)
+        modes.append({
+            "severity": round(float(target[labels == mode].mean()), 4),
+            "hull": [[round(float(x), 4), round(float(y), 4)] for x, y in hull],
+        })
 
     seeds = []
     needed: dict[str, tuple[str, str]] = {}
@@ -150,6 +175,7 @@ def main() -> None:
         "budget": BUDGET,
         "nInit": N_INIT,
         "points": points,
+        "modes": modes,
         "seeds": seeds,
     }
     OUT_JSON.write_text(json.dumps(payload, separators=(",", ":")))

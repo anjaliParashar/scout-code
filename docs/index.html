@@ -42,7 +42,7 @@
             <button type="button" id="reset">New seed</button>
           </div>
         </div>
-        <p class="failure-note"><strong>Failure</strong> is the missed-car score on real KITTI: one minus the average overlap between the detector’s boxes and the ground-truth cars. A frame counts as severe when that score is at least 0.45. Proxy only ranks frames by the simulator surrogate. Real only spends the same labels without that surrogate. The t-SNE is where the labeled frames sit in the scene embedding.</p>
+        <p class="failure-note"><strong>Failure</strong> is the missed-car score on real KITTI: one minus the average overlap between the detector’s boxes and the ground-truth cars. A frame counts as severe when that score is at least 0.45. Proxy only ranks frames by the simulator surrogate. Real only spends the same labels without that surrogate. The map groups frames into islands and colors each island by how severe the frames there are. Marks are the frames that method has labeled, so coverage shows up inside the hotter islands.</p>
         <div class="demo-layout">
           <div class="panel">
             <canvas id="curves" width="900" height="520"></canvas>

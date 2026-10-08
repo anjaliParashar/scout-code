@@ -144,6 +144,17 @@
       ];
     }
 
+    const severities = demo.modes.map((mode) => mode.severity);
+    const sevLo = Math.min(...severities);
+    const sevHi = Math.max(...severities);
+    function islandColor(severity, alpha) {
+      const t = (severity - sevLo) / (sevHi - sevLo || 1);
+      const r = Math.round(92 + (228 - 92) * t);
+      const g = Math.round(112 + (78 - 112) * t);
+      const b = Math.round(128 + (42 - 128) * t);
+      return `rgba(${r},${g},${b},${alpha})`;
+    }
+
     METHODS.forEach((method, k) => {
       const row = Math.floor(k / cols);
       const col = k % cols;
@@ -159,20 +170,36 @@
       ctx.font = `${Math.round(h * 0.032)}px "Source Sans 3", sans-serif`;
       ctx.fillText(method.name, x0 + panelW / 2, y0 - head * 0.35);
 
-      const radius = Math.max(1.1, w / 520);
-      for (const point of demo.points) {
+      const order = current().orders[method.id];
+      const covered = new Set();
+      for (let i = 0; i < n; i++) {
+        const point = demo.points[order[i]];
+        if (point[2]) covered.add(point[3]);
+      }
+      demo.modes.forEach((mode, id) => {
+        const hull = mode.hull.map((vertex) => xy(x0, y0, vertex));
+        ctx.beginPath();
+        hull.forEach((vertex, i) => {
+          if (i === 0) ctx.moveTo(vertex[0], vertex[1]);
+          else ctx.lineTo(vertex[0], vertex[1]);
+        });
+        ctx.closePath();
+        ctx.fillStyle = islandColor(mode.severity, covered.has(id) ? 0.72 : 0.28);
+        ctx.fill();
+        if (covered.has(id)) {
+          ctx.strokeStyle = method.color;
+          ctx.lineWidth = Math.max(1.6, w / 420);
+          ctx.stroke();
+        }
+      });
+
+      const radius = Math.max(1.3, w / 460);
+      for (let i = 0; i < n; i++) {
+        const point = demo.points[order[i]];
         const [x, y] = xy(x0, y0, point);
         ctx.beginPath();
-        ctx.fillStyle = point[2] ? "rgba(240, 201, 176, 0.55)" : "rgba(255,255,255,0.13)";
-        ctx.arc(x, y, point[2] ? radius * 1.7 : radius, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      const order = current().orders[method.id];
-      ctx.fillStyle = method.color;
-      for (let i = 0; i < n; i++) {
-        const [x, y] = xy(x0, y0, demo.points[order[i]]);
-        ctx.beginPath();
-        ctx.arc(x, y, radius * 2.4, 0, Math.PI * 2);
+        ctx.fillStyle = point[2] ? method.color : "rgba(255,255,255,0.45)";
+        ctx.arc(x, y, point[2] ? radius * 2.1 : radius, 0, Math.PI * 2);
         ctx.fill();
       }
     });
@@ -199,7 +226,7 @@
     document.getElementById("n-severe").textContent = String(oursNow);
     document.getElementById("n-proxy").textContent = String(proxyNow);
     document.getElementById("n-real").textContent = String(realNow);
-    inspect.textContent = `Ours has found ${oursNow} severe real failures. Proxy only has ${proxyNow}. Real only has ${realNow}. Pale points on the t-SNE are the severe frames in the full pool.`;
+    inspect.textContent = `Ours has found ${oursNow} severe real failures. Proxy only has ${proxyNow}. Real only has ${realNow}. Hotter islands are more severe, and a colored outline means that method has a severe label there.`;
   }
 
   function step() {
