@@ -73,24 +73,19 @@ def _separate(embedded: np.ndarray, labels: np.ndarray) -> np.ndarray:
         radius = float(np.linalg.norm(members - centers[i], axis=1).max())
         xy[labels == mode] = centers[i] + (members - centers[i]) / max(radius, 1e-6)
     centers = np.stack([xy[labels == mode].mean(0) for mode in modes])
-    need = 2.18
-    for _ in range(200):
-        moved = False
-        for i in range(len(modes)):
-            for j in range(i + 1, len(modes)):
-                delta = centers[i] - centers[j]
-                dist = float(np.linalg.norm(delta)) + 1e-6
-                if dist >= need:
-                    continue
-                shift = 0.5 * (need - dist) * delta / dist
-                centers[i] += shift
-                centers[j] -= shift
-                moved = True
-        if not moved:
-            break
+    center = centers.mean(0)
+    angles = np.arctan2(centers[:, 1] - center[1], centers[:, 0] - center[0])
+    order = np.argsort(angles)
+    # Three columns, with the last cell left empty. Neighboring circles almost touch.
+    pitch = 2.16
+    slots = [(col, row) for row in range(3) for col in range(3)][: len(modes)]
+    placed = np.zeros_like(centers)
+    for rank, index in enumerate(order):
+        col, row = slots[rank]
+        placed[index] = [col * pitch, row * pitch]
     for i, mode in enumerate(modes):
         members = xy[labels == mode]
-        xy[labels == mode] = members + (centers[i] - members.mean(0))
+        xy[labels == mode] = members + (placed[i] - members.mean(0))
     return xy
 
 
