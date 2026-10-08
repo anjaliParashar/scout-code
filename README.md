@@ -25,8 +25,9 @@ That notebook defines the domain, the mutual-information shortlist, and the cont
 2. Define the two-diamond target and the shifted proxy.
 3. Plot the real field next to the proxy.
 4. Draw a handful of noisy real labels.
-5. Score random designs by mutual information and keep a shortlist.
-6. Re-rank the shortlist with the control variate and mark the next batch.
+5. Play the animation: labels appear one at a time, then the kernel posterior is refit after each new label.
+6. Score random designs by mutual information and keep a shortlist.
+7. Re-rank the shortlist with the control variate and mark the next batch.
 
 To write the same four figures from the command line, from the repository root:
 
