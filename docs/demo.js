@@ -1,17 +1,25 @@
-/* Interactive 2-D demo of support-aware MI followed by a local control variate. */
+/* KITTI demo: learn real missed-car scores from a few labels, using Virtual KITTI as the proxy. */
 (function () {
-  const C1 = [1.35, 1.35], R1 = 0.65;
-  const C2 = [-1.35, 1.35], R2 = 0.55;
-  const N = 72;
-  const BUDGET = 16;
+  const BUDGET = 12;
   const N_INIT = 6;
+  const GRID = 52;
   const LS = 0.55;
-  const NOISE = 0.12;
-
+  const NOISE = 0.08;
   const MAGMA = [
     [0, 0, 4], [28, 16, 68], [79, 18, 123], [129, 37, 129],
     [181, 54, 122], [229, 80, 100], [251, 135, 97], [254, 194, 135], [252, 253, 191],
   ];
+
+  const simCanvas = document.getElementById("sim");
+  const tgtCanvas = document.getElementById("target");
+  const fill = document.getElementById("budget-fill");
+  const budgetText = document.getElementById("budget-text");
+  const readout = document.getElementById("readout");
+  const inspect = document.getElementById("inspect");
+  const proxyImg = document.getElementById("proxy-img");
+  const realImg = document.getElementById("real-img");
+  const proxyScore = document.getElementById("proxy-score");
+  const realScore = document.getElementById("real-score");
 
   function mulberry32(seed) {
     let a = seed >>> 0;
@@ -22,24 +30,9 @@
       return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
     };
   }
-
-  function diamond(x, c, r) {
-    return r - (Math.abs(x[0] - c[0]) + Math.abs(x[1] - c[1]));
-  }
-  function realMean(x) {
-    const base = Math.max(diamond(x, C1, R1), diamond(x, C2, R2));
-    return 1.15 * Math.tanh(2.4 * base) + 0.10 * Math.sin(1.1 * x[0]) - 0.08 * Math.cos(0.9 * x[1]);
-  }
-  function simMean(x) {
-    const xs = [x[0] + 0.18, x[1] - 0.12];
-    const base = Math.max(diamond(xs, C1, R1 * 1.05), 0.1 * diamond(xs, C2, R2 * 0.95));
-    return 1.15 * Math.tanh(2.4 * base) + 0.10 * Math.sin(1.1 * x[0]) - 0.08 * Math.cos(0.9 * x[1]);
-  }
   function dist(a, b) {
-    const dx = a[0] - b[0], dy = a[1] - b[1];
-    return Math.hypot(dx, dy);
+    return Math.hypot(a[0] - b[0], a[1] - b[1]);
   }
-
   function color(t) {
     const u = Math.min(1, Math.max(0, t)) * (MAGMA.length - 1);
     const i = Math.floor(u);
@@ -47,7 +40,6 @@
     const a = MAGMA[i], b = MAGMA[Math.min(i + 1, MAGMA.length - 1)];
     return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f];
   }
-
   function solve(A, b) {
     const n = b.length;
     const M = A.map((row, i) => row.concat([b[i]]));
@@ -65,10 +57,8 @@
     }
     return M.map((row) => row[n]);
   }
-
   function gpMean(trainX, trainY, query) {
     const n = trainX.length;
-    if (!n) return query.map(() => 0);
     const mu = trainY.reduce((s, v) => s + v, 0) / n;
     const y = trainY.map((v) => v - mu);
     const K = Array.from({ length: n }, () => Array(n).fill(0));
@@ -89,241 +79,224 @@
       return s;
     });
   }
-
-  function makeWorld(seed) {
-    const rnd = mulberry32(seed);
-    const pool = [];
-    for (let i = 0; i < 380; i++) pool.push([-2.6 + rnd() * 5.2, -2.6 + rnd() * 5.2]);
-    const labeled = [];
-    while (labeled.length < N_INIT) {
-      const i = Math.floor(rnd() * pool.length);
-      if (!labeled.includes(i)) labeled.push(i);
-    }
-    const grid = [];
-    for (let iy = 0; iy < N; iy++) {
-      for (let ix = 0; ix < N; ix++) {
-        const x = -3 + (6 * ix) / (N - 1);
-        const y = -3 + (6 * iy) / (N - 1);
-        grid.push([x, y]);
+  function idw(points, values, query) {
+    return query.map((q) => {
+      let wsum = 0, vsum = 0;
+      for (let i = 0; i < points.length; i++) {
+        const d = dist(q, points[i]);
+        if (d < 1e-3) return values[i];
+        const w = 1 / (d * d);
+        wsum += w;
+        vsum += w * values[i];
       }
-    }
-    let vmin = Infinity, vmax = -Infinity;
-    const simGrid = grid.map(simMean);
-    const realGrid = grid.map(realMean);
-    for (const v of simGrid.concat(realGrid)) {
-      vmin = Math.min(vmin, v);
-      vmax = Math.max(vmax, v);
-    }
-    return { seed, pool, labeled, y: labeled.map((i) => realMean(pool[i])), grid, simGrid, realGrid, vmin, vmax, shortlist: [], chosen: -1 };
-  }
-
-  function minDists(pool, labeled, rest) {
-    return rest.map((i) => {
-      let m = Infinity;
-      for (const j of labeled) m = Math.min(m, dist(pool[i], pool[j]));
-      return m;
+      return vsum / wsum;
     });
   }
 
-  function choose(world, method) {
-    const { pool, labeled, y } = world;
-    const rest = [];
-    const taken = new Set(labeled);
-    for (let i = 0; i < pool.length; i++) if (!taken.has(i)) rest.push(i);
-    const dmin = minDists(pool, labeled, rest);
-    if (method === "random") return { shortlist: [], chosen: rest[Math.floor(Math.random() * rest.length)] };
+  let frames = [];
+  let bounds = { minX: -1, maxX: 1, minY: -1, maxY: 1 };
+  let grid = [];
+  let proxyField = [];
+  let world = null;
+  let method = "ours";
+  let timer = null;
+  let focus = 0;
+
+  function xy(frame) { return [frame.x, frame.y]; }
+
+  function makeWorld(seed) {
+    const rnd = mulberry32(seed);
+    const labeled = [];
+    while (labeled.length < N_INIT) {
+      const i = Math.floor(rnd() * frames.length);
+      if (!labeled.includes(i)) labeled.push(i);
+    }
+    return { seed, labeled, shortlist: [], chosen: -1 };
+  }
+
+  function choose() {
+    const labeled = new Set(world.labeled);
+    const rest = frames.map((_, i) => i).filter((i) => !labeled.has(i));
+    const dmin = rest.map((i) => {
+      let m = Infinity;
+      for (const j of world.labeled) m = Math.min(m, dist(xy(frames[i]), xy(frames[j])));
+      return m;
+    });
+    if (method === "random") {
+      return { shortlist: [], chosen: rest[Math.floor(Math.random() * rest.length)] };
+    }
     if (method === "mi") {
       const order = rest.map((idx, k) => ({ idx, d: dmin[k] })).sort((a, b) => b.d - a.d);
-      return { shortlist: order.slice(0, 18).map((o) => o.idx), chosen: order[0].idx };
+      return { shortlist: order.slice(0, 12).map((o) => o.idx), chosen: order[0].idx };
     }
     const eligible = [];
-    for (let i = 0; i < rest.length; i++) if (dmin[i] > 0.28) eligible.push(i);
+    for (let i = 0; i < rest.length; i++) if (dmin[i] > 0.18) eligible.push(i);
     const use = eligible.length ? eligible : rest.map((_, i) => i);
     if (method === "proxy") {
       let best = use[0];
-      for (const i of use) if (simMean(pool[rest[i]]) > simMean(pool[rest[best]])) best = i;
+      for (const i of use) if (frames[rest[i]].proxy > frames[rest[best]].proxy) best = i;
       return { shortlist: [], chosen: rest[best] };
     }
-    const band = [];
-    for (const i of use) if (dmin[i] < 1.15) band.push(i);
-    const base = band.length >= 15 ? band : use;
-    const sims = base.map((i) => simMean(pool[rest[i]]));
+    const band = use.filter((i) => dmin[i] < 1.6);
+    const base = band.length >= 10 ? band : use;
+    const sims = base.map((i) => frames[rest[i]].proxy);
     const novs = base.map((i) => dmin[i]);
     const sMin = Math.min(...sims), sMax = Math.max(...sims);
     const nMin = Math.min(...novs), nMax = Math.max(...novs);
     const ranked = base.map((i, k) => ({
       i,
-      score: 0.55 * ((sims[k] - sMin) / (sMax - sMin + 1e-9)) + 0.45 * ((novs[k] - nMin) / (nMax - nMin + 1e-9)),
-    })).sort((a, b) => b.score - a.score).slice(0, 28);
-    const shortIdx = ranked.map((r) => rest[r.i]);
-    const trainX = labeled.map((i) => pool[i]);
-    const fhat = gpMean(trainX, y, shortIdx.map((i) => pool[i]));
-    const g = shortIdx.map((i) => simMean(pool[i]));
-    const gs = trainX.map(simMean);
+      score: 0.55 * ((sims[k] - sMin) / (sMax - sMin + 1e-9))
+        + 0.45 * ((novs[k] - nMin) / (nMax - nMin + 1e-9)),
+    })).sort((a, b) => b.score - a.score).slice(0, 16);
+    const short = ranked.map((r) => rest[r.i]);
+    const trainX = world.labeled.map((i) => xy(frames[i]));
+    const trainY = world.labeled.map((i) => frames[i].target);
+    const fhat = gpMean(trainX, trainY, short.map((i) => xy(frames[i])));
+    const gs = trainX.map((_, i) => frames[world.labeled[i]].proxy);
     const gMean = gs.reduce((s, v) => s + v, 0) / gs.length;
-    const yMean = y.reduce((s, v) => s + v, 0) / y.length;
+    const yMean = trainY.reduce((s, v) => s + v, 0) / trainY.length;
     let cov = 0, varg = 0;
     for (let i = 0; i < gs.length; i++) {
-      cov += (gs[i] - gMean) * (y[i] - yMean);
+      cov += (gs[i] - gMean) * (trainY[i] - yMean);
       varg += (gs[i] - gMean) ** 2;
     }
     const beta = Math.min(1, Math.max(0, cov / (varg + 1e-6)));
     let best = 0;
-    for (let i = 1; i < shortIdx.length; i++) {
-      const si = (1 - 0.35 * beta) * fhat[i] + 0.35 * beta * g[i];
-      const sb = (1 - 0.35 * beta) * fhat[best] + 0.35 * beta * g[best];
+    for (let i = 1; i < short.length; i++) {
+      const si = (1 - 0.35 * beta) * fhat[i] + 0.35 * beta * frames[short[i]].proxy;
+      const sb = (1 - 0.35 * beta) * fhat[best] + 0.35 * beta * frames[short[best]].proxy;
       if (si > sb) best = i;
     }
-    return { shortlist: shortIdx, chosen: shortIdx[best] };
+    return { shortlist: short, chosen: short[best] };
   }
 
-  function counts(world) {
-    let fails = 0, left = 0, right = 0;
-    for (let k = N_INIT; k < world.labeled.length; k++) {
-      const x = world.pool[world.labeled[k]];
-      const r = realMean(x);
-      if (r > 0.2) fails += 1;
-      if (diamond(x, C2, R2) >= 0) left += 1;
-      if (diamond(x, C1, R1) >= 0) right += 1;
-    }
-    return { fails, left, right, k: world.labeled.length - N_INIT };
+  function project(canvas) {
+    const pad = 28;
+    return {
+      px: (x) => pad + ((x - bounds.minX) / (bounds.maxX - bounds.minX)) * (canvas.width - 2 * pad),
+      py: (y) => canvas.height - pad - ((y - bounds.minY) / (bounds.maxY - bounds.minY)) * (canvas.height - 2 * pad),
+    };
   }
 
-  function outline(ctx, c, r, scale) {
-    ctx.beginPath();
-    [[r, 0], [0, r], [-r, 0], [0, -r], [r, 0]].forEach(([dx, dy], i) => {
-      const px = scale.px(c[0] + dx), py = scale.py(c[1] + dy);
-      if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
-    });
-    ctx.strokeStyle = "rgba(0,0,0,0.85)";
-    ctx.lineWidth = 1.4;
-    ctx.stroke();
-  }
-
-  function paint(canvas, values, world, points) {
+  function paint(canvas, values, points) {
     const ctx = canvas.getContext("2d");
     const w = canvas.width, h = canvas.height;
     const img = ctx.createImageData(w, h);
-    const scale = {
-      px: (x) => ((x + 3) / 6) * (w - 1),
-      py: (y) => (1 - (y + 3) / 6) * (h - 1),
-    };
+    const scale = project(canvas);
     for (let py = 0; py < h; py++) {
-      const gy = Math.min(N - 1, Math.floor((1 - py / (h - 1)) * (N - 1)));
+      const gy = Math.min(GRID - 1, Math.floor((1 - py / (h - 1)) * (GRID - 1)));
       for (let px = 0; px < w; px++) {
-        const gx = Math.min(N - 1, Math.floor((px / (w - 1)) * (N - 1)));
-        const v = values ? values[gy * N + gx] : null;
-        const rgb = v == null ? [236, 232, 227] : color((v - world.vmin) / (world.vmax - world.vmin));
+        const gx = Math.min(GRID - 1, Math.floor((px / (w - 1)) * (GRID - 1)));
+        const v = values ? values[gy * GRID + gx] : null;
+        const rgb = v == null ? [236, 232, 227] : color(v);
         const o = (py * w + px) * 4;
         img.data[o] = rgb[0]; img.data[o + 1] = rgb[1]; img.data[o + 2] = rgb[2]; img.data[o + 3] = 255;
       }
     }
     ctx.putImageData(img, 0, 0);
-    outline(ctx, C1, R1, scale);
-    outline(ctx, C2, R2, scale);
-    function dot(p, radius, fill) {
+    function dot(frame, radius, fillStyle) {
       ctx.beginPath();
-      ctx.arc(scale.px(p[0]), scale.py(p[1]), radius, 0, Math.PI * 2);
-      ctx.fillStyle = fill;
+      ctx.arc(scale.px(frame.x), scale.py(frame.y), radius, 0, Math.PI * 2);
+      ctx.fillStyle = fillStyle;
       ctx.fill();
       ctx.strokeStyle = "#111";
       ctx.lineWidth = 1;
       ctx.stroke();
     }
-    if (points.shortlist) {
-      for (const p of points.shortlist) dot(p, 3.2, "#f5d76e");
-    }
-    if (points.labeled) {
-      for (const p of points.labeled) dot(p, 4.2, "white");
-    }
-    if (points.chosen) dot(points.chosen, 7, "#fff");
+    for (const i of points.shortlist || []) dot(frames[i], 4, "#f5d76e");
+    for (const i of points.labeled || []) dot(frames[i], 5, "white");
+    if (points.chosen >= 0) dot(frames[points.chosen], 8, "#fff");
   }
 
-  const simCanvas = document.getElementById("sim");
-  const tgtCanvas = document.getElementById("target");
-  const fill = document.getElementById("budget-fill");
-  const budgetText = document.getElementById("budget-text");
-  const readout = document.getElementById("readout");
-  const inspect = document.getElementById("inspect");
-  let world = makeWorld(7);
-  let method = "ours";
-  let timer = null;
-  let simField = null;
-
-  function resize() {
-    const dpr = Math.min(2, window.devicePixelRatio || 1);
-    for (const c of [simCanvas, tgtCanvas]) {
-      const rect = c.getBoundingClientRect();
-      c.width = Math.max(280, Math.floor(rect.width * dpr));
-      c.height = c.width;
-    }
-  }
-
-  function field() {
+  function learnedField() {
     if (!world.labeled.length) return null;
-    const trainX = world.labeled.map((i) => world.pool[i]);
-    return gpMean(trainX, world.y, world.grid);
+    const trainX = world.labeled.map((i) => xy(frames[i]));
+    const trainY = world.labeled.map((i) => frames[i].target);
+    return gpMean(trainX, trainY, grid);
+  }
+
+  function show(index) {
+    focus = index;
+    const frame = frames[index];
+    proxyImg.src = frame.proxyImg;
+    realImg.src = frame.real;
+    proxyScore.textContent = `proxy failure ${frame.proxy.toFixed(2)} · sequence ${frame.seq}, frame ${frame.frame}, ${frame.cars} cars`;
+    const known = world.labeled.includes(index);
+    realScore.textContent = known
+      ? `target failure ${frame.target.toFixed(2)} · real KITTI label`
+      : "target failure not labeled yet";
   }
 
   function render() {
-    if (!simField) simField = world.simGrid;
-    paint(simCanvas, simField, world, {});
-    const pred = world.labeled.length ? field() : null;
-    const labeledPts = world.labeled.map((i) => world.pool[i]);
-    const shortPts = world.shortlist.map((i) => world.pool[i]);
-    paint(tgtCanvas, pred, world, {
-      labeled: labeledPts,
-      shortlist: shortPts,
-      chosen: world.chosen >= 0 ? world.pool[world.chosen] : null,
+    paint(simCanvas, proxyField, { labeled: world.labeled, chosen: world.chosen });
+    paint(tgtCanvas, learnedField(), {
+      labeled: world.labeled,
+      shortlist: world.shortlist,
+      chosen: world.chosen,
     });
-    const c = counts(world);
-    fill.style.width = `${(100 * c.k) / BUDGET}%`;
-    budgetText.textContent = `target budget  ${c.k} / ${BUDGET}`;
-    document.getElementById("n-fail").textContent = c.fails;
-    document.getElementById("n-left").textContent = c.left;
-    document.getElementById("n-right").textContent = c.right;
-    document.getElementById("n-used").textContent = c.k;
+    const acquired = world.labeled.slice(N_INIT);
+    const k = acquired.length;
+    const mean = k ? acquired.reduce((s, i) => s + frames[i].target, 0) / k : 0;
+    const severe = acquired.filter((i) => frames[i].target >= 0.5).length;
+    fill.style.width = `${(100 * k) / BUDGET}%`;
+    budgetText.textContent = `target budget  ${k} / ${BUDGET}`;
+    document.getElementById("n-used").textContent = String(k);
+    document.getElementById("n-mean").textContent = mean.toFixed(2);
+    document.getElementById("n-severe").textContent = String(severe);
+    if (world.chosen >= 0) show(world.chosen);
   }
 
   function step() {
     if (world.labeled.length - N_INIT >= BUDGET) {
       pause();
-      readout.textContent = "Budget spent. Reset to run again, or switch the acquisition rule.";
+      readout.textContent = "Budget spent. Reset for another seed, or switch the acquisition rule.";
       return;
     }
-    const pick = choose(world, method);
+    const pick = choose();
     world.shortlist = pick.shortlist;
     world.chosen = pick.chosen;
     world.labeled.push(pick.chosen);
-    world.y.push(realMean(world.pool[pick.chosen]));
-    const x = world.pool[pick.chosen];
-    const where = diamond(x, C2, R2) >= 0 ? "left diamond" : diamond(x, C1, R1) >= 0 ? "right diamond" : "background";
-    if (method === "ours") {
-      readout.textContent = `Mutual information proposed ${pick.shortlist.length} uncovered designs. The control variate kept the one in the ${where}.`;
-    } else if (method === "proxy") {
-      readout.textContent = `Proxy-only search evaluated the brightest simulated design, in the ${where}.`;
-    } else if (method === "mi") {
-      readout.textContent = `Mutual information alone picked the least covered design, in the ${where}.`;
-    } else {
-      readout.textContent = `Uniform random label, in the ${where}.`;
-    }
+    const frame = frames[pick.chosen];
+    const gap = frame.target - frame.proxy;
+    readout.textContent = method === "ours"
+      ? `Shortlist of ${pick.shortlist.length}, then the control variate kept sequence ${frame.seq} frame ${frame.frame}. Real failure ${frame.target.toFixed(2)}, proxy ${frame.proxy.toFixed(2)} (gap ${gap >= 0 ? "+" : ""}${gap.toFixed(2)}).`
+      : `Labeled sequence ${frame.seq} frame ${frame.frame}. Real failure ${frame.target.toFixed(2)}, proxy ${frame.proxy.toFixed(2)}.`;
     render();
   }
 
-  function play() {
-    if (timer) return;
-    timer = setInterval(step, 700);
-  }
-  function pause() {
-    clearInterval(timer);
-    timer = null;
-  }
+  function play() { if (!timer) timer = setInterval(step, 1100); }
+  function pause() { clearInterval(timer); timer = null; }
   function reset(seed) {
     pause();
     world = makeWorld(seed);
-    simField = null;
-    readout.textContent = "Press play. Each step spends one real label.";
+    world.shortlist = [];
+    world.chosen = -1;
+    readout.textContent = "Press play. Each step spends one real KITTI label. The pictures are that frame.";
     render();
+    show(world.labeled[world.labeled.length - 1]);
+  }
+
+  function nearest(canvas, ev) {
+    const rect = canvas.getBoundingClientRect();
+    const scale = project(canvas);
+    const mx = ((ev.clientX - rect.left) / rect.width) * canvas.width;
+    const my = ((ev.clientY - rect.top) / rect.height) * canvas.height;
+    let best = 0, bd = Infinity;
+    frames.forEach((frame, i) => {
+      const d = Math.hypot(scale.px(frame.x) - mx, scale.py(frame.y) - my);
+      if (d < bd) { bd = d; best = i; }
+    });
+    return bd < 28 * (canvas.width / rect.width) ? best : -1;
+  }
+
+  function bindHover(canvas) {
+    canvas.addEventListener("mousemove", (ev) => {
+      const i = nearest(canvas, ev);
+      if (i < 0) return;
+      show(i);
+      const frame = frames[i];
+      inspect.textContent = `Sequence ${frame.seq}, frame ${frame.frame}: proxy ${frame.proxy.toFixed(2)}, real KITTI ${frame.target.toFixed(2)}.`;
+    });
   }
 
   document.getElementById("play").onclick = play;
@@ -338,29 +311,46 @@
       reset(world.seed);
     };
   });
+  bindHover(simCanvas);
+  bindHover(tgtCanvas);
+  window.addEventListener("resize", () => { resize(); if (world) render(); });
 
-  tgtCanvas.addEventListener("mousemove", (ev) => {
-    const rect = tgtCanvas.getBoundingClientRect();
-    const x = -3 + ((ev.clientX - rect.left) / rect.width) * 6;
-    const y = 3 - ((ev.clientY - rect.top) / rect.height) * 6;
-    const p = [x, y];
-    let best = 0, bd = Infinity;
-    for (let i = 0; i < world.pool.length; i++) {
-      const d = dist(p, world.pool[i]);
-      if (d < bd) { bd = d; best = i; }
+  function resize() {
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    for (const c of [simCanvas, tgtCanvas]) {
+      const rect = c.getBoundingClientRect();
+      const side = Math.max(240, Math.floor(rect.width * dpr));
+      c.width = side;
+      c.height = side;
     }
-    if (bd > 0.45) { inspect.textContent = "Hover the target field to compare the simulator and the learned score."; return; }
-    const q = world.pool[best];
-    const pred = world.labeled.length ? gpMean(world.labeled.map((i) => world.pool[i]), world.y, [q])[0] : 0;
-    inspect.textContent = `Nearest design (${q[0].toFixed(2)}, ${q[1].toFixed(2)}):  simulator ${simMean(q).toFixed(2)}   learned target ${pred.toFixed(2)}   true target ${realMean(q).toFixed(2)}`;
-  });
+  }
 
-  window.addEventListener("resize", () => { resize(); render(); });
-  resize();
-  render();
-  play();
-
-  const video = document.getElementById("paper-video");
-  const missing = document.getElementById("video-missing");
-  video.addEventListener("error", () => { missing.hidden = false; });
+  fetch("assets/kitti_pool.json")
+    .then((r) => r.json())
+    .then((data) => {
+      frames = data.frames;
+      const xs = frames.map((f) => f.x), ys = frames.map((f) => f.y);
+      const padX = (Math.max(...xs) - Math.min(...xs)) * 0.12;
+      const padY = (Math.max(...ys) - Math.min(...ys)) * 0.12;
+      bounds = {
+        minX: Math.min(...xs) - padX, maxX: Math.max(...xs) + padX,
+        minY: Math.min(...ys) - padY, maxY: Math.max(...ys) + padY,
+      };
+      grid = [];
+      for (let iy = 0; iy < GRID; iy++) {
+        for (let ix = 0; ix < GRID; ix++) {
+          grid.push([
+            bounds.minX + (bounds.maxX - bounds.minX) * ix / (GRID - 1),
+            bounds.minY + (bounds.maxY - bounds.minY) * iy / (GRID - 1),
+          ]);
+        }
+      }
+      proxyField = idw(frames.map(xy), frames.map((f) => f.proxy), grid);
+      resize();
+      reset(7);
+      play();
+    })
+    .catch(() => {
+      readout.textContent = "Could not load the KITTI frame set.";
+    });
 })();

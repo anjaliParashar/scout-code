@@ -106,7 +106,12 @@ h3 { margin: 0 0 8px; font-size: 20px; }
 .controls button.active, .task-tabs button.active { background: var(--hot); border-color: var(--hot); color: white; }
 .controls button:hover, .task-tabs button:hover { border-color: #8a8176; }
 
-.canvases { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.demo-layout { display: grid; grid-template-columns: 1.35fr 0.8fr; gap: 16px; align-items: start; }
+.canvases { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.pair { display: flex; flex-direction: column; gap: 12px; }
+.pair figure { margin: 0; }
+.pair img { width: 100%; border-radius: 10px; background: #111; aspect-ratio: 1242 / 375; object-fit: cover; }
+.pair figcaption { color: #d9cfc3; font-size: 14px; margin-top: 4px; }
 .panel { min-width: 0; }
 .panel p { margin: 0 0 6px; font-size: 14px; letter-spacing: 0.04em; text-transform: uppercase; color: #c8bfb4; }
 canvas { width: 100%; height: auto; border-radius: 12px; background: #111; }
@@ -170,6 +175,6 @@ td.best { background: var(--hot-soft); font-weight: 700; }
 footer { padding: 10px 0 40px; color: var(--muted); font-size: 14px; }
 
 @media (max-width: 800px) {
-  .canvases, .cards, .video-grid { grid-template-columns: 1fr; }
+  .demo-layout, .canvases, .cards, .video-grid { grid-template-columns: 1fr; }
   .hero { padding-top: 28px; }
 }

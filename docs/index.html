@@ -46,28 +46,41 @@
             <button type="button" id="reset">New seed</button>
           </div>
         </div>
-        <div class="canvases">
-          <div class="panel">
-            <p>Simulated system</p>
-            <canvas id="sim" width="640" height="640"></canvas>
+        <div class="demo-layout">
+          <div class="canvases">
+            <div class="panel">
+              <p>Virtual KITTI scores</p>
+              <canvas id="sim" width="640" height="640"></canvas>
+            </div>
+            <div class="panel">
+              <p>KITTI scores being learned</p>
+              <canvas id="target" width="640" height="640"></canvas>
+            </div>
           </div>
-          <div class="panel">
-            <p>Target system</p>
-            <canvas id="target" width="640" height="640"></canvas>
+          <div class="pair">
+            <figure>
+              <p>Virtual KITTI</p>
+              <img id="proxy-img" alt="Virtual KITTI frame currently selected">
+              <figcaption id="proxy-score"></figcaption>
+            </figure>
+            <figure>
+              <p>KITTI</p>
+              <img id="real-img" alt="Real KITTI frame currently selected">
+              <figcaption id="real-score"></figcaption>
+            </figure>
           </div>
         </div>
         <div class="budget">
           <div class="budget-track"><div class="budget-fill" id="budget-fill"></div></div>
-          <span id="budget-text">target budget  0 / 16</span>
+          <span id="budget-text">target budget  0 / 12</span>
         </div>
-        <p class="readout" id="readout">Press play. Each step spends one real label.</p>
+        <p class="readout" id="readout">Loading paired KITTI frames…</p>
         <div class="stats">
-          <div><b id="n-used">0</b><span>labels spent</span></div>
-          <div><b id="n-fail">0</b><span>target failures</span></div>
-          <div><b id="n-left">0</b><span>left diamond</span></div>
-          <div><b id="n-right">0</b><span>right diamond</span></div>
+          <div><b id="n-used">0</b><span>real frames labeled</span></div>
+          <div><b id="n-mean">0</b><span>mean target failure</span></div>
+          <div><b id="n-severe">0</b><span>failures above 0.5</span></div>
         </div>
-        <p class="inspect" id="inspect">Hover the target field to compare the simulator and the learned score.</p>
+        <p class="inspect" id="inspect">Hover a point to see that frame. Each step spends one real KITTI label.</p>
       </div>
       <div class="cards" style="margin-top: 16px">
         <article class="card">
@@ -80,7 +93,7 @@
         </article>
         <article class="card">
           <h3>3. Spend one real label</h3>
-          <p>The chosen design is evaluated on the target system, the surrogate updates, and the budget bar advances. The left diamond is real and almost absent from the simulator.</p>
+          <p>The chosen frame is labeled with the real KITTI missed-car score. The picture pair updates so you can see the clone and the real road scene that score came from.</p>
         </article>
       </div>
     </section>
