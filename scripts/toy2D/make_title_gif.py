@@ -41,6 +41,18 @@ def _outline(ax):
         ax.plot(verts[:, 0], verts[:, 1], color="k", lw=1.1)
 
 
+def _bare(ax, title):
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_xlabel("")
+    ax.set_ylabel("")
+    ax.grid(False)
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_box_aspect(1)
+    ax.set_title(title, pad=6)
+
+
 def _heat(ax, grid, values, vmin, vmax, title):
     n = int(np.sqrt(len(grid)))
     ax.imshow(
@@ -51,11 +63,7 @@ def _heat(ax, grid, values, vmin, vmax, title):
     _outline(ax)
     ax.set_xlim(-3, 3)
     ax.set_ylim(-3, 3)
-    ax.set_xticks([-2, 0, 2])
-    ax.set_yticks([-2, 0, 2])
-    ax.set_xlabel("x1")
-    ax.set_ylabel("x2")
-    ax.set_title(title, pad=6)
+    _bare(ax, title)
 
 
 def _kernel(a, b, lengthscale):
@@ -120,10 +128,9 @@ def render(path: Path, seed: int = 7) -> None:
     lengthscale = float(np.clip(np.exp(theta_hat[0]), 0.40, 0.70))
     noise = float(np.exp(theta_hat[1]))
 
-    fig = plt.figure(figsize=(9.0, 4.7))
+    fig = plt.figure(figsize=(8.2, 4.45), layout="constrained")
     grid_spec = fig.add_gridspec(
-        2, 2, height_ratios=[1.0, 0.085],
-        left=0.06, right=0.98, top=0.90, bottom=0.13, wspace=0.22, hspace=0.05,
+        2, 2, height_ratios=[1.0, 0.07], wspace=0.06, hspace=0.02,
     )
     ax_sim = fig.add_subplot(grid_spec[0, 0])
     ax_tgt = fig.add_subplot(grid_spec[0, 1])
@@ -146,11 +153,7 @@ def render(path: Path, seed: int = 7) -> None:
             _outline(ax_tgt)
             ax_tgt.set_xlim(-3, 3)
             ax_tgt.set_ylim(-3, 3)
-            ax_tgt.set_xticks([-2, 0, 2])
-            ax_tgt.set_yticks([-2, 0, 2])
-            ax_tgt.set_xlabel("x1")
-            ax_tgt.set_ylabel("x2")
-            ax_tgt.set_title("Target system", pad=6)
+            _bare(ax_tgt, "Target system")
         else:
             _heat(ax_tgt, grid, pred, vmin, vmax, "Target system")
         if k:
