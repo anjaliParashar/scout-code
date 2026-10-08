@@ -261,7 +261,7 @@
   document.getElementById("reset").onclick = () => reset(seedSlot + 1);
   window.addEventListener("resize", () => { resize(); if (demo) render(); });
 
-  fetch("assets/kitti_demo.json")
+  fetch("assets/kitti_demo.json?v=3")
     .then((response) => response.json())
     .then((data) => {
       demo = data;
