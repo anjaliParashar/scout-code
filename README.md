@@ -1,5 +1,9 @@
 # SCOUT
 
+<p align="center">
+  <img src="docs/toy2d.gif" alt="Sampling real labels on the 2-D toy, then training the surrogate" width="860">
+</p>
+
 SCOUT looks for failures of a real system by choosing which scenarios to label next. A mutual-information shortlist proposes scenarios the current labels do not explain. A control variate then re-ranks that shortlist with a cheap proxy, so the next real labels land where the proxy-corrected failure score is high.
 
 Shared estimators live in `scout/`. KITTI, SIMPLER, and the quadruped task import that package. The 2-D notebook does not: it runs on its own.
@@ -25,9 +29,8 @@ That notebook defines the domain, the mutual-information shortlist, and the cont
 2. Define the two-diamond target and the shifted proxy.
 3. Plot the real field next to the proxy.
 4. Draw a handful of noisy real labels.
-5. Play the animation: labels appear one at a time, then the kernel posterior is refit after each new label.
-6. Score random designs by mutual information and keep a shortlist.
-7. Re-rank the shortlist with the control variate and mark the next batch.
+5. Score random designs by mutual information and keep a shortlist.
+6. Re-rank the shortlist with the control variate and mark the next batch.
 
 To write the same four figures from the command line, from the repository root:
 
